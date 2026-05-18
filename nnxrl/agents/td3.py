@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from flax import nnx, struct
 from ..utils.normalization import RMS
 from ..utils.replaybuffer import Batch, JAXReplayBuffer
-from ..model import TanhDetActor, soft_update, EnsembleCritic, quantile_loss
+from ..model import TanhDetActor, soft_update, EnsembleCritic, quantile_loss, project_normalized_parameters
 from ..utils.checkpoint import load_states, save_states
 
 
@@ -31,6 +31,7 @@ class TD3Config(Protocol):
     policy_noise: float
     noise_clip: float
     num_head: int
+    normalize_parameters: bool
 
 @struct.dataclass
 class TrainState:
@@ -191,6 +192,8 @@ def update_critic(
         loss, has_aux=True
     )(ts.critic, ts.target_critic )
     ts.critic_opt.update(grads)
+    if config.normalize_parameters:
+        project_normalized_parameters(ts.critic)
     return ts, info
 
 
@@ -216,6 +219,8 @@ def update_actor(
 
     (_loss, info), grads = nnx.value_and_grad(actor_loss_fn, has_aux=True, argnums=0)(train_state.actor, train_state.critic)
     train_state.actor_opt.update(grads)
+    if config.normalize_parameters:
+        project_normalized_parameters(train_state.critic)
 
     soft_update(train_state.actor, train_state.target_actor, config.tau)
     soft_update(train_state.critic, train_state.target_critic, config.tau)

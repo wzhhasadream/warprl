@@ -40,6 +40,7 @@ class Args:
     actor_ln: Literal[True, False] = True
     num_q: int = 2
     num_head: int = 100
+    normalize_parameters: Literal[True, False] = True
 
 
     action_repeat: int = 2
@@ -88,7 +89,8 @@ def main():
         simba_encoder=args.simba,
         layer_norm=args.actor_ln,
         num_ode=args.num_ode,
-        num_steps=args.num_step
+        num_steps=args.num_step,
+        unit_projection=args.normalize_parameters
         )
     
     else:
@@ -98,7 +100,8 @@ def main():
         action_high=envs.single_action_space.high,
         action_low=envs.single_action_space.low,
         simba_encoder=args.simba,
-        layer_norm=args.actor_ln
+        layer_norm=args.actor_ln,
+        unit_projection=args.normalize_parameters
     )
     critic = EnsembleCritic(
         obs_dim,
@@ -107,7 +110,8 @@ def main():
         hidden_dim=args.critic_hidden_dim,
         simba_encoder=args.simba,
         layer_norm=args.critic_ln,
-        num_head=args.num_head
+        num_head=args.num_head,
+        unit_projection=args.normalize_parameters
     )
     alpha = Alpha() if args.autotune else None
     actor_opt = nnx.Optimizer(actor, optax.adam(args.policy_lr))

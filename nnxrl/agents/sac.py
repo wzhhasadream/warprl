@@ -9,7 +9,8 @@ SquashedTanhGaussianActor,
 Alpha,
 EnsembleCritic,
 soft_update,
-quantile_loss)
+quantile_loss,
+project_normalized_parameters)
 from ..utils.replaybuffer import Batch, JAXReplayBuffer
 from ..utils.normalization import RMS
 from ..utils.checkpoint import load_states, save_states
@@ -36,6 +37,7 @@ class SACConfig(Protocol):
     autotune: bool
     alpha: float
     target_entropy: float
+    normalize_parameters: bool
 
 
 @struct.dataclass
@@ -169,6 +171,8 @@ def update_critic(ts: TrainState, config: SACConfig, batch: Batch, key: jax.Arra
     (_loss, info), grads = nnx.value_and_grad(
         loss, has_aux=True)(ts.critic, ts.target_critic, ts.actor)
     ts.critic_opt.update(grads)
+    if config.normalize_parameters:
+        project_normalized_parameters(ts.critic)
     return ts, info
 
 
@@ -198,6 +202,8 @@ def update_actor(
         actor_loss_fn, argnums=0, has_aux=True
     )(train_state.actor, train_state.critic)
     train_state.actor_opt.update(grads)
+    if config.normalize_parameters:
+        project_normalized_parameters(train_state.actor)
     return train_state, info
 
 

@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Any
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -8,6 +8,126 @@ def orthogonal(scale: jax.Array = jnp.sqrt(2)):
     return nnx.initializers.orthogonal(scale)
 
 
+def project_normalized_parameters(module: Any) -> None:
+    """Recursively call normalize_parameters() on graph nodes that define it."""
+    seen: set[int] = set()
+    for _, value in nnx.iter_graph(module):
+        obj_id = id(value)
+        if obj_id in seen:
+            continue
+        seen.add(obj_id)
+        normalize_fn = getattr(value, "normalize_parameters", None)
+        if callable(normalize_fn):
+            normalize_fn()
+
+
+def normalize_linear_kernel(kernel: jax.Array, eps: float = 1e-8) -> jax.Array:
+    """Normalize each output column of an NNX Linear kernel to unit L2 norm."""
+    norm = jnp.linalg.norm(kernel, axis=0, keepdims=True)
+    return kernel / jnp.maximum(norm, eps)
+
+
+def normalize_scale_bias(
+    scale: jax.Array,
+    bias: jax.Array,
+    eps: float = 1e-8,
+) -> tuple[jax.Array, jax.Array]:
+    """Normalize affine scale and bias jointly to sqrt(feature_dim)."""
+    feature_dim = scale.shape[-1]
+    sqsum = jnp.sum(scale * scale + bias * bias, axis=-1, keepdims=True)
+    factor = jnp.sqrt(jnp.asarray(feature_dim, dtype=scale.dtype)) * jax.lax.rsqrt(sqsum + eps)
+    return scale * factor, bias * factor
+
+
+class UnitLinear(nnx.Module):
+    """Linear layer whose output columns can be projected to unit norm."""
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        rngs: nnx.Rngs,
+        *,
+        use_bias: bool = True,
+        kernel_init: Callable[..., jax.Array] | None = None,
+        bias_init: Callable[..., jax.Array] = nnx.initializers.zeros_init(),
+    ):
+        if kernel_init is None:
+            kernel_init = orthogonal(1)
+        self.linear = nnx.Linear(
+            in_features=in_features,
+            out_features=out_features,
+            use_bias=use_bias,
+            rngs=rngs,
+            kernel_init=kernel_init,
+            bias_init=bias_init,
+        )
+        self.normalize_parameters()
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return self.linear(x)
+
+    def normalize_parameters(self) -> None:
+        self.linear.kernel.value = normalize_linear_kernel(self.linear.kernel.value)
+
+
+class UnitLayerNorm(nnx.Module):
+    """LayerNorm with FlashSAC-style affine projection."""
+
+    def __init__(
+        self,
+        num_features: int,
+        rngs: nnx.Rngs,
+        *,
+        epsilon: float = 1e-6,
+        use_scale: bool = True,
+        use_bias: bool = True,
+    ):
+        self.norm = nnx.LayerNorm(
+            num_features=num_features,
+            epsilon=epsilon,
+            use_scale=use_scale,
+            use_bias=use_bias,
+            rngs=rngs,
+        )
+        self.normalize_parameters()
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return self.norm(x)
+
+    def normalize_parameters(self) -> None:
+        if hasattr(self.norm, "scale") and hasattr(self.norm, "bias"):
+            scale, bias = normalize_scale_bias(self.norm.scale.value, self.norm.bias.value)
+            self.norm.scale.value = scale
+            self.norm.bias.value = bias
+
+
+class UnitRMSNorm(nnx.Module):
+    """RMSNorm with scale projection to sqrt(feature_dim)."""
+
+    def __init__(
+        self,
+        num_features: int,
+        rngs: nnx.Rngs,
+        *,
+        epsilon: float = 1e-6,
+    ):
+        self.scale = nnx.Param(jnp.ones((num_features,), dtype=jnp.float32))
+        self.epsilon = epsilon
+        self.normalize_parameters()
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        rms = jnp.sqrt(jnp.mean(jnp.square(x), axis=-1, keepdims=True) + self.epsilon)
+        return (x / rms) * self.scale.value
+
+    def normalize_parameters(self) -> None:
+        scale = self.scale.value
+        feature_dim = scale.shape[-1]
+        sqsum = jnp.sum(scale * scale, axis=-1, keepdims=True)
+        factor = jnp.sqrt(jnp.asarray(feature_dim, dtype=scale.dtype)) * jax.lax.rsqrt(sqsum + 1e-8)
+        self.scale.value = scale * factor
+
+
 class MLP(nnx.Module):
     def __init__(
         self,
@@ -15,12 +135,15 @@ class MLP(nnx.Module):
         hidden_dims: list[int],
         rngs: nnx.Rngs,
         layer_norm: bool = False,
-        activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish
+        activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish,
+        unit_projection: bool = False,
     ):
         dims = [in_dim] + list(hidden_dims)
+        linear_cls = UnitLinear if unit_projection else nnx.Linear
+        norm_cls = UnitLayerNorm if unit_projection else nnx.LayerNorm
 
         self.layers = [
-            nnx.Linear(
+            linear_cls(
                 dims[i], dims[i + 1],
                 rngs=rngs,
                 kernel_init=orthogonal() 
@@ -30,9 +153,10 @@ class MLP(nnx.Module):
 
         self.layer_norm = layer_norm
         self.activation_fn = activation_fn
+        self.unit_projection = unit_projection
         if layer_norm:
             self.norms = [
-                nnx.LayerNorm(num_features=dims[i + 1], rngs=rngs)
+                norm_cls(num_features=dims[i + 1], rngs=rngs)
                 for i in range(len(hidden_dims))
             ]
 
@@ -61,25 +185,29 @@ class ResidualBlock(nnx.Module):
     def __init__(
         self,
         hidden_dim: int,
-        rngs: nnx.Rngs = nnx.Rngs(0)
+        rngs: nnx.Rngs = nnx.Rngs(0),
+        unit_projection: bool = False
     ):
         self.hidden_dim = hidden_dim
+        self.unit_projection = unit_projection
+        linear_cls = UnitLinear if unit_projection else nnx.Linear
+        norm_cls = UnitLayerNorm if unit_projection else nnx.LayerNorm
 
         # Layer normalization
-        self.layer_norm = nnx.LayerNorm(
+        self.layer_norm = norm_cls(
             num_features=hidden_dim,
             rngs=rngs
         )
 
         # Feedforward network with 4x expansion
-        self.dense1 = nnx.Linear(
+        self.dense1 = linear_cls(
             in_features=hidden_dim,
             out_features=hidden_dim * 4,
             kernel_init=nnx.initializers.he_normal(),
             rngs=rngs
         )
 
-        self.dense2 = nnx.Linear(
+        self.dense2 = linear_cls(
             in_features=hidden_dim * 4,
             out_features=hidden_dim,
             kernel_init=nnx.initializers.he_normal(),  
@@ -99,6 +227,7 @@ class ResidualBlock(nnx.Module):
 
         # Add residual connection
         return residual + x
+
 
 
 # Adapted from SimBa:https://github.com/SonyResearch/simba/blob/master/scale_rl/agents/sac/sac_network.py#L33
@@ -121,13 +250,17 @@ class SimBaEncoder(nnx.Module):
         input_dim: int,
         hidden_dim: int,
         num_blocks: int = 1,
-        rngs: nnx.Rngs = nnx.Rngs(0)
+        rngs: nnx.Rngs = nnx.Rngs(0),
+        unit_projection: bool = False
     ):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_blocks = num_blocks
+        self.unit_projection = unit_projection
+        linear_cls = UnitLinear if unit_projection else nnx.Linear
+        norm_cls = UnitLayerNorm if unit_projection else nnx.LayerNorm
 
-        self.input_projection = nnx.Linear(
+        self.input_projection = linear_cls(
             in_features=input_dim,
             out_features=hidden_dim,
             kernel_init=orthogonal(1),
@@ -136,12 +269,12 @@ class SimBaEncoder(nnx.Module):
 
         # Stack residual blocks
         self.residual_blocks = [
-            ResidualBlock(hidden_dim, rngs=rngs)
+            ResidualBlock(hidden_dim, rngs=rngs, unit_projection=unit_projection)
             for _ in range(num_blocks)
         ]
 
         # Final layer norm
-        self.final_layer_norm = nnx.LayerNorm(
+        self.final_layer_norm = norm_cls(
             num_features=hidden_dim,
             rngs=rngs
         )
