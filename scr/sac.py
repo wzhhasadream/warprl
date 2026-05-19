@@ -52,7 +52,7 @@ class Args:
 
     action_repeat: int = 2
     normalize_observation: Literal[True, False] = True
-    simba: Literal[True, False] = False
+    simba: Literal[True, False] = True
     grad_step_per_env_step: int = 1
 
     eval_frequency: int = 1e4

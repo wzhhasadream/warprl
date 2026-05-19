@@ -33,7 +33,7 @@ class Args:
     learning_starts: int = int(5e3)
     gamma: float = 0.99
     tau: float = 0.005
-    batch_size: int = 256
+    batch_size: int = 512
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
     target_entropy: float = 0  # will be set automatically

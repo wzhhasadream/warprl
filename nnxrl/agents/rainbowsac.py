@@ -116,9 +116,9 @@ def update_critic(ts: TrainState, config: RainbowSACConfig, batch: Batch, key: j
     actions_all = jnp.concat([batch.actions, next_actions], axis=0)
 
     def critic_loss_fn(critic: FlashSACDoubleCritic, target_critic: FlashSACDoubleCritic):
-        q = critic(obs_all, actions_all)[:, : config.batch_size, :]    # (num_q, 2 * B, 1)
-        next_q = target_critic(obs_all, actions_all)[
-            :,config.batch_size : , :]
+        q = critic(obs_all, actions_all, training=True)[:, : config.batch_size, :]
+        next_q = target_critic(obs_all, actions_all, training=True)[
+            :, config.batch_size:, :]
         min_next_q = jnp.min(next_q, axis=0)
         target_q = batch.rewards + (1.0 - batch.dones) * config.gamma * (
             min_next_q - alpha_value * next_log_pi
@@ -132,12 +132,13 @@ def update_critic(ts: TrainState, config: RainbowSACConfig, batch: Batch, key: j
         return critic_loss, info
 
     def dist_critic_loss(critic, target_critic):
-            next_q_dist = target_critic(obs_all, actions_all, training=True)[:, config.batch_size : , :]  # (2, B, num_quantile)
+            next_q_dist = target_critic(
+                obs_all, actions_all, training=True
+            )[:, config.batch_size:, :]
             next_q_dist = next_q_dist.min(0)
             target_q_dist = batch.rewards + config.gamma * (1 - batch.dones) * (next_q_dist - alpha_value * next_log_pi)  # (B, num_quantile)
-            # (2, B, num_quantile)
             q_dist = critic(obs_all, actions_all, training=True)[
-                :, : config.batch_size , :]
+                :, : config.batch_size, :]
 
             q_loss = quantile_loss(q_dist, target_q_dist).mean()
 
