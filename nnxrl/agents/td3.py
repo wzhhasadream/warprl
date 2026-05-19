@@ -220,7 +220,7 @@ def update_actor(
     (_loss, info), grads = nnx.value_and_grad(actor_loss_fn, has_aux=True, argnums=0)(train_state.actor, train_state.critic)
     train_state.actor_opt.update(grads)
     if config.normalize_parameters:
-        project_normalized_parameters(train_state.critic)
+        project_normalized_parameters(train_state.actor)
 
     soft_update(train_state.actor, train_state.target_actor, config.tau)
     soft_update(train_state.critic, train_state.target_critic, config.tau)
@@ -300,7 +300,6 @@ def sample_and_update_td3(
 #####################################################################
 ################## JAX ENV ##########################################
 #####################################################################
-
 
 
 

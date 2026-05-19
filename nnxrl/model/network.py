@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 from .time_embedding import TimeEmbedding
-from .layer import MLP, SimBaEncoder, UnitLinear, orthogonal
+from .layer import MLP, SimBaEncoder, orthogonal
 from .policy import (
     SquashedTanhGaussianPolicy,
     TanhDeterministicPolicy,
@@ -43,21 +43,18 @@ class QNetwork(nnx.Module):
                  activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish,
                  layer_norm: bool = False,
                  simba_encoder: bool = False,
-                 unit_projection: bool = False,
                  num_head: int = 1     # for distributional q
                  ):
         self.obs_dim = flattened_dim(obs_dim)
-        linear_cls = UnitLinear if unit_projection else nnx.Linear
         if simba_encoder:
             self.mlp = SimBaEncoder(
-                self.obs_dim + action_dim, 512, 2, rngs, unit_projection=unit_projection)
+                self.obs_dim + action_dim, 512, 2, rngs)
             out_dim = 512
         else:
             self.mlp = MLP(self.obs_dim + action_dim, list(hidden_dim),
-                           rngs=rngs, layer_norm=layer_norm, activation_fn=activation_fn,
-                           unit_projection=unit_projection)
+                           rngs=rngs, layer_norm=layer_norm, activation_fn=activation_fn)
             out_dim = hidden_dim[-1]
-        self.out = linear_cls(
+        self.out = nnx.Linear(
             out_dim, num_head, rngs=rngs, kernel_init=orthogonal())
 
     def __call__(self, x, a):
@@ -73,21 +70,18 @@ class VNetwork(nnx.Module):
                  activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish,
                  layer_norm: bool = False,
                  simba_encoder: bool = False,
-                 unit_projection: bool = False,
                  num_head: int = 1    # for distributional q
                  ):
         self.obs_dim = flattened_dim(obs_dim)
-        linear_cls = UnitLinear if unit_projection else nnx.Linear
         if simba_encoder:
             self.mlp = SimBaEncoder(
-                self.obs_dim, 512, 2, rngs, unit_projection=unit_projection)
+                self.obs_dim, 512, 2, rngs)
             out_dim = 512
         else:
             self.mlp = MLP(self.obs_dim, list(hidden_dim),
-                           rngs=rngs, layer_norm=layer_norm, activation_fn=activation_fn,
-                           unit_projection=unit_projection)
+                           rngs=rngs, layer_norm=layer_norm, activation_fn=activation_fn)
             out_dim = hidden_dim[-1]
-        self.out = linear_cls(
+        self.out = nnx.Linear(
             out_dim, num_head, rngs=rngs, kernel_init=orthogonal())
 
     def __call__(self, x):
@@ -97,7 +91,7 @@ class VNetwork(nnx.Module):
 
 class EnsembleCritic(nnx.Module):
     """Ensemble Q network using NNX API."""
-    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None, None, None))
+    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None, None))
     def __init__(
         self,
         obs_dim: int,
@@ -107,7 +101,6 @@ class EnsembleCritic(nnx.Module):
         activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish,
         layer_norm: bool = False,
         simba_encoder: bool = False,
-        unit_projection: bool = False,
         num_head: int = 1
     ):
 
@@ -119,7 +112,6 @@ class EnsembleCritic(nnx.Module):
             activation_fn=activation_fn,
             layer_norm=layer_norm,
             simba_encoder=simba_encoder,
-            unit_projection=unit_projection,
             num_head=num_head,
         )
 
@@ -143,8 +135,7 @@ class TanhDetActor(nnx.Module):
         action_low: jax.Array = -1,
         activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish,
         layer_norm: bool = False,
-        simba_encoder: bool = False,
-        unit_projection: bool = False
+        simba_encoder: bool = False
     ):
         self.action_high = action_high
         self.action_low = action_low
@@ -152,17 +143,15 @@ class TanhDetActor(nnx.Module):
         self.action_dim = action_dim
 
         self.obs_dim = flattened_dim(obs_dim)
-        linear_cls = UnitLinear if unit_projection else nnx.Linear
         if simba_encoder:
-            self.encoder = SimBaEncoder(self.obs_dim, 128, 1, rngs, unit_projection=unit_projection)
+            self.encoder = SimBaEncoder(self.obs_dim, 128, 1, rngs)
             out_dim = 128
         else:
             self.encoder = MLP(self.obs_dim,
-                               hidden_dim, rngs, layer_norm, activation_fn=activation_fn,
-                               unit_projection=unit_projection)
+                               hidden_dim, rngs, layer_norm, activation_fn=activation_fn)
             out_dim = hidden_dim[-1]
 
-        self.actor_head = linear_cls(
+        self.actor_head = nnx.Linear(
             out_dim, action_dim, rngs=rngs, kernel_init=orthogonal())
 
         self.policy = TanhDeterministicPolicy(
@@ -187,7 +176,6 @@ class SquashedTanhGaussianActor(nnx.Module):
         activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish,
         layer_norm: bool = False,
         simba_encoder: bool = False,
-        unit_projection: bool = False,
         log_std_min: jax.Array = -5,
         log_std_max: jax.Array = 2,
         squash_log_std: bool = True
@@ -199,18 +187,16 @@ class SquashedTanhGaussianActor(nnx.Module):
         self.action_bias = (action_high + action_low) / 2
 
         self.obs_dim = flattened_dim(obs_dim)
-        linear_cls = UnitLinear if unit_projection else nnx.Linear
         if simba_encoder:
-            self.encoder = SimBaEncoder(self.obs_dim, 128, 1, rngs, unit_projection=unit_projection)
+            self.encoder = SimBaEncoder(self.obs_dim, 128, 1, rngs)
             out_dim = 128
         else:
             self.encoder = MLP(self.obs_dim, hidden_dim, rngs, layer_norm,
-                               activation_fn=activation_fn,
-                               unit_projection=unit_projection)
+                               activation_fn=activation_fn)
             out_dim = hidden_dim[-1]
-        self.fc_mean = linear_cls(
+        self.fc_mean = nnx.Linear(
             out_dim, action_dim, rngs=rngs, kernel_init=orthogonal())
-        self.fc_logstd = linear_cls(
+        self.fc_logstd = nnx.Linear(
             out_dim, action_dim, rngs=rngs, kernel_init=orthogonal())
 
         self.policy = SquashedTanhGaussianPolicy(
@@ -254,7 +240,6 @@ class GaussianActor(nnx.Module):
         activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish,
         layer_norm: bool = False,
         simba_encoder: bool = False,
-        unit_projection: bool = False,
         log_std_min: jax.Array = -20,
         log_std_max: jax.Array = 2,
         squash_log_std: bool = True,
@@ -266,19 +251,17 @@ class GaussianActor(nnx.Module):
 
         self.obs_dim = flattened_dim(obs_dim)
         self.shared_std = shared_std
-        linear_cls = UnitLinear if unit_projection else nnx.Linear
         if simba_encoder:
-            self.encoder = SimBaEncoder(self.obs_dim, 128, 1, rngs, unit_projection=unit_projection)
+            self.encoder = SimBaEncoder(self.obs_dim, 128, 1, rngs)
             out_dim = 128
         else:
             self.encoder = MLP(self.obs_dim, hidden_dim, rngs, layer_norm,
-                               activation_fn=activation_fn,
-                               unit_projection=unit_projection)
+                               activation_fn=activation_fn)
             out_dim = hidden_dim[-1]
-        self.fc_mean = linear_cls(
+        self.fc_mean = nnx.Linear(
             out_dim, action_dim, rngs=rngs, kernel_init=orthogonal())
         if not self.shared_std:
-            self.fc_logstd = linear_cls(
+            self.fc_logstd = nnx.Linear(
                 out_dim, action_dim, rngs=rngs, kernel_init=orthogonal())
         else:
             self.log_std = nnx.Param(jnp.zeros((action_dim, )))
@@ -325,7 +308,6 @@ class FlowActor(nnx.Module):
         activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.mish,
         layer_norm: bool = False,
         simba_encoder: bool = False,
-        unit_projection: bool = False,
         emb_dim: int = 64,
         euler_steps: int = 10
     ):
@@ -338,19 +320,16 @@ class FlowActor(nnx.Module):
         self.action_dim = action_dim
 
         self.obs_dim = flattened_dim(obs_dim)
-        linear_cls = UnitLinear if unit_projection else nnx.Linear
         if simba_encoder:
             self.encoder = SimBaEncoder(
-                self.obs_dim + self.action_dim + emb_dim, 128, 1, rngs,
-                unit_projection=unit_projection)
+                self.obs_dim + self.action_dim + emb_dim, 128, 1, rngs)
             out_dim = 128
         else:
             self.encoder = MLP(self.obs_dim + self.action_dim + emb_dim, hidden_dim, rngs, layer_norm,
-                               activation_fn=activation_fn,
-                               unit_projection=unit_projection)
+                               activation_fn=activation_fn)
             out_dim = hidden_dim[-1]
         self.time_embed = TimeEmbedding(emb_dim=emb_dim, rngs=rngs)
-        self.head = linear_cls(out_dim, action_dim,
+        self.head = nnx.Linear(out_dim, action_dim,
                                rngs=rngs, kernel_init=orthogonal())
 
     def get_v(self, obs: jax.Array, x_t: jax.Array, t: jax.Array) -> jax.Array:

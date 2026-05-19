@@ -2,7 +2,13 @@ import nnxrl.utils.logger as wandb
 from flax import nnx
 from typing import Literal, Sequence
 from nnxrl.agents.sac import update_sac, TrainState
-from nnxrl.model import EnsembleCritic, SquashedTanhGaussianActor, Alpha, CoupleFlowActor
+from nnxrl.model import (
+    Alpha,
+    CoupleFlowActor,
+    EnsembleCritic,
+    SquashedTanhGaussianActor,
+    project_normalized_parameters,
+)
 from nnxrl.env import load_env
 from nnxrl.utils import RMS, ReplayBuffer, evaluate_policy
 import time
@@ -34,6 +40,7 @@ class Args:
     alpha: float = 0.2
     autotune: Literal[True, False] = True
     target_entropy: float = 0  # will be set automatically
+    target_sigma: float = 0.15
     critic_hidden_dim: Sequence[int] = (512, 512, 512)
     critic_ln: Literal[True, False] = True
     actor_hidden_dim: Sequence[int] = (512, 512, 512)
@@ -75,7 +82,9 @@ def main():
 
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
-    args.target_entropy = - action_dim 
+    args.target_entropy = 0.5 * action_dim * np.log(
+        2.0 * np.pi * np.e * args.target_sigma ** 2
+    )
 
     wandb.init(project='sac', config=vars(args), name=f'{args.env_id}')
 
@@ -89,8 +98,7 @@ def main():
         simba_encoder=args.simba,
         layer_norm=args.actor_ln,
         num_ode=args.num_ode,
-        num_steps=args.num_step,
-        unit_projection=args.normalize_parameters
+        num_steps=args.num_step
         )
     
     else:
@@ -100,8 +108,7 @@ def main():
         action_high=envs.single_action_space.high,
         action_low=envs.single_action_space.low,
         simba_encoder=args.simba,
-        layer_norm=args.actor_ln,
-        unit_projection=args.normalize_parameters
+        layer_norm=args.actor_ln
     )
     critic = EnsembleCritic(
         obs_dim,
@@ -110,9 +117,11 @@ def main():
         hidden_dim=args.critic_hidden_dim,
         simba_encoder=args.simba,
         layer_norm=args.critic_ln,
-        num_head=args.num_head,
-        unit_projection=args.normalize_parameters
+        num_head=args.num_head
     )
+    if args.normalize_parameters:
+        project_normalized_parameters(actor)
+        project_normalized_parameters(critic)
     alpha = Alpha() if args.autotune else None
     actor_opt = nnx.Optimizer(actor, optax.adam(args.policy_lr))
     critic_opt = nnx.Optimizer(critic, optax.adam(args.q_lr))

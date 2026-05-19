@@ -3,7 +3,7 @@ from typing import Sequence
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from .layer import MLP, SimBaEncoder, UnitLinear
+from .layer import MLP, SimBaEncoder
 from .policy import squash_tanh_action, squash_log_std_tanh
 
 def encode_low_to_high_batch(x: jax.Array, perm: jax.Array, dim: int) -> jax.Array:
@@ -50,10 +50,8 @@ class AlphaNetwork(nnx.Module):
         rngs: nnx.Rngs,
         hidden_dim: Sequence[int] = (256, 256),
         layer_norm: bool = False,
-        simba_encoder: bool = False,
-        unit_projection: bool = False
+        simba_encoder: bool = False
     ):
-        linear_cls = UnitLinear if unit_projection else nnx.Linear
         if not simba_encoder:
             self.backbone = MLP(
                 in_dim=int(latent_dim) + int(obs_dim),
@@ -61,17 +59,15 @@ class AlphaNetwork(nnx.Module):
                 rngs=rngs.fork(),
                 activation_fn=jax.nn.mish,
                 layer_norm=layer_norm,
-                unit_projection=unit_projection,
             )
             hidden_out = int(hidden_dim[-1])
         elif simba_encoder:
             self.backbone = SimBaEncoder(
-                int(latent_dim) + int(obs_dim), 128, 1,
-                unit_projection=unit_projection)
+                int(latent_dim) + int(obs_dim), 128, 1)
             hidden_out = 128
-        self.scale_head = linear_cls(
+        self.scale_head = nnx.Linear(
             hidden_out, int(latent_dim), rngs=rngs.fork())
-        self.bias_head = linear_cls(
+        self.bias_head = nnx.Linear(
             hidden_out, int(latent_dim), rngs=rngs.fork())
 
     @nnx.vmap(in_axes=(None, None, None, 0, 0), out_axes=(0, 0))
@@ -108,8 +104,7 @@ class VelocityNetwork(nnx.Module):
         rngs: nnx.Rngs,
         hidden_dim: Sequence[int] = (256, 256),
         layer_norm: bool = False,
-        simba_encoder: bool = False,
-        unit_projection: bool = False
+        simba_encoder: bool = False
     ):
         self.split_dim = tuple(int(v) for v in split_dim)
         self.obs_dim = int(obs_dim)
@@ -143,7 +138,6 @@ class VelocityNetwork(nnx.Module):
             hidden_dim=hidden_dim,
             layer_norm=layer_norm,
             simba_encoder=simba_encoder,
-            unit_projection=unit_projection,
         )
 
     def euler_step(
@@ -172,8 +166,7 @@ class CoupleFlowActor(nnx.Module):
         num_steps: int = 5,
         num_ode: int = 3,
         layer_norm: bool = False,
-        simba_encoder: bool = False,
-        unit_projection: bool = False
+        simba_encoder: bool = False
     ):
         self.latent_dim = action_dim
         if num_ode > action_dim:
@@ -198,7 +191,6 @@ class CoupleFlowActor(nnx.Module):
             hidden_dim=hidden_dim,
             layer_norm=layer_norm,
             simba_encoder=simba_encoder,
-            unit_projection=unit_projection,
         )
 
         self.action_low = jnp.asarray(action_low, dtype=jnp.float32)

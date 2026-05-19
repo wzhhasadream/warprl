@@ -3,7 +3,7 @@ from flax import nnx
 from typing import Literal, Sequence
 from nnxrl.utils import ReplayBuffer, RMS, evaluate_policy
 from nnxrl.agents.td3 import update_td3, TrainState
-from nnxrl.model import EnsembleCritic, TanhDetActor
+from nnxrl.model import EnsembleCritic, TanhDetActor, project_normalized_parameters
 from nnxrl.env import load_env
 import time
 import numpy as np
@@ -78,8 +78,7 @@ def main():
         action_high=envs.single_action_space.high,
         action_low=envs.single_action_space.low,
         simba_encoder=args.simba,
-        layer_norm=args.actor_ln,
-        unit_projection=args.normalize_parameters)
+        layer_norm=args.actor_ln)
 
     critic = EnsembleCritic(
         obs_dim,
@@ -87,8 +86,11 @@ def main():
         rngs.fork(split=args.num_q),
         hidden_dim=args.critic_hidden_dim,
         simba_encoder=args.simba,
-        layer_norm=args.critic_ln,
-        unit_projection=args.normalize_parameters)
+        layer_norm=args.critic_ln)
+
+    if args.normalize_parameters:
+        project_normalized_parameters(actor)
+        project_normalized_parameters(critic)
 
     actor_opt = nnx.Optimizer(actor, optax.adam(args.policy_lr))
     critic_opt = nnx.Optimizer(critic, optax.adam(args.q_lr))
