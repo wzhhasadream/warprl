@@ -1,5 +1,5 @@
 from typing import Any, Callable, Sequence
-
+import math
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -369,16 +369,16 @@ class ActorCritic(nnx.Module):
 
 
 class Alpha(nnx.Module):
-    def __init__(self, init_value: float = 0.0):
-        self.log_alpha = nnx.Param(jnp.asarray(init_value))
+    def __init__(self, init_value: float = 0.01):
+        self.log_alpha = nnx.Param(jnp.asarray(math.log(init_value)))
 
     def __call__(self) -> jax.Array:
         return jnp.exp(self.log_alpha.value)
 
 
 class SquashedAlpha(nnx.Module):
-    def __init__(self, init_value: float = 0.0, log_std_min: float = -10.0, log_std_max: float = 7.5):
-        self.log_alpha = nnx.Param(jnp.asarray(init_value))
+    def __init__(self, init_value: float = 0.01, log_std_min: float = -10.0, log_std_max: float = 7.5):
+        self.log_alpha = nnx.Param(jnp.asarray(math.log(init_value)))
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
 

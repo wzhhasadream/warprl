@@ -187,7 +187,7 @@ class MaskedCategoricalPolicy:
 class GaussianPolicy:
     """Diagonal Gaussian policy (no tanh squashing)."""
 
-    log_std_min: float = -5.0
+    log_std_min: float = -10.0
     log_std_max: float = 2.0
     squash_log_std: bool = False
 
@@ -213,7 +213,7 @@ class SquashedTanhGaussianPolicy:
 
     action_low: jax.Array
     action_high: jax.Array
-    log_std_min: float = -5.0
+    log_std_min: float = -10.0
     log_std_max: float = 2.0
     squash_log_std: bool = True
 
