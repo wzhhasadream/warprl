@@ -47,7 +47,7 @@ class Args:
     actor_ln: Literal[True, False] = True
     num_q: int = 2
     num_head: int = 100
-    normalize_parameters: Literal[True, False] = True
+    normalize_parameters: Literal[True, False] = False
 
 
     action_repeat: int = 2
