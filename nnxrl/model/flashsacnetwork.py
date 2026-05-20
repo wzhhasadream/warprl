@@ -6,8 +6,7 @@ from .layer import FlashSACBlock, FlashSACEmbedder, orthogonal
 from .policy import (
     SquashedTanhGaussianPolicy,
     action_scale_bias,
-    flattened_dim,
-    squash_log_std_tanh,
+    flattened_dim
 )
 
 
@@ -68,24 +67,6 @@ class FlashSACActor(nnx.Module):
         for block in self.blocks:
             x = block(x, training=training)
         return self.post_norm(x)
-
-    def get_mean_and_std(
-        self,
-        observations: jax.Array,
-        training: bool = False,
-    ) -> tuple[jax.Array, jax.Array]:
-        x = self._encode(observations, training=training)
-        mean = self.fc_mean(x)
-        raw_log_std = self.fc_log_std(x)
-        log_std = raw_log_std
-        if self.policy.squash_log_std:
-            log_std = squash_log_std_tanh(
-                raw_log_std,
-                log_std_min=self.policy.log_std_min,
-                log_std_max=self.policy.log_std_max,
-            )
-        std = jnp.exp(log_std)
-        return mean, std
 
     def __call__(
         self,

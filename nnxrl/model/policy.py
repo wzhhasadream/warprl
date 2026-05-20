@@ -193,8 +193,7 @@ class GaussianPolicy:
 
     def dist(self, mean: jax.Array, log_std: jax.Array) -> tfd.Distribution:
         if self.squash_log_std:
-            log_std = squash_log_std_tanh(
-                log_std, log_std_min=self.log_std_min, log_std_max=self.log_std_max)
+            log_std = self.transform_log_std(log_std)
         std = jnp.exp(log_std)
         return tfd.MultivariateNormalDiag(loc=mean, scale_diag=std)
 
@@ -206,6 +205,11 @@ class GaussianPolicy:
         log_prob = d.log_prob(action)
         return action, log_prob
 
+    def transform_log_std(self, log_std: jax.Array):
+        if self.squash_log_std:
+            return squash_log_std_tanh(
+                log_std, log_std_min=self.log_std_min, log_std_max=self.log_std_max)
+        return log_std
 
 @dataclass(frozen=True)
 class SquashedTanhGaussianPolicy:
@@ -219,8 +223,7 @@ class SquashedTanhGaussianPolicy:
 
     def dist(self, mean: jax.Array, log_std: jax.Array) -> tfd.Distribution:
         if self.squash_log_std:
-            log_std = squash_log_std_tanh(
-                log_std, log_std_min=self.log_std_min, log_std_max=self.log_std_max)
+            log_std = self.transform_log_std(log_std)
         std = jnp.exp(log_std)
         base = tfd.MultivariateNormalDiag(loc=mean, scale_diag=std)
         scale, bias = action_scale_bias(self.action_low, self.action_high)
@@ -241,6 +244,12 @@ class SquashedTanhGaussianPolicy:
         action = d.sample(seed=key)
         log_prob = d.log_prob(action)
         return action, log_prob
+
+    def transform_log_std(self, log_std: jax.Array):
+        if self.squash_log_std:
+            return squash_log_std_tanh(
+                log_std, log_std_min=self.log_std_min, log_std_max=self.log_std_max)
+        return log_std
 
 
 @dataclass(frozen=True)
