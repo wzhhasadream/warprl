@@ -106,7 +106,7 @@ class TrainState:
         actions, _ = self.actor.get_action(obs, key=key, training=False)
         return  actions
 
-    def make_update_fn(config: RainbowSACConfig):
+    def make_update_fn(self, config: RainbowSACConfig):
         @nnx.jit
         def jit_update(ts: TrainState, big_batch: Batch, key: jax.Array):
             return update_rainbowsac(ts, config, key, big_batch)
