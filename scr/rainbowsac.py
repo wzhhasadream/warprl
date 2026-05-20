@@ -1,6 +1,6 @@
 import nnxrl.utils.logger as wandb
 from flax import nnx
-from typing import Literal, Sequence
+from typing import Literal
 from nnxrl.agents.rainbowsac import update_rainbowsac, TrainState
 from nnxrl.model import (
     Alpha,

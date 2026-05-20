@@ -1,4 +1,3 @@
-from tkinter import W
 from typing import NamedTuple, Any
 import numpy as np
 import jax.numpy as jnp
@@ -374,7 +373,6 @@ class ReplayBuffer:
 #######################################################
 
 
-
 def _reshape_obs_leaf(x: Any, shape_spec: tuple[int, ...], n_envs: int, dtype: jnp.dtype) -> jax.Array:
     x = jnp.asarray(x, dtype=dtype)
     return x.reshape((n_envs, *shape_spec))
@@ -396,7 +394,7 @@ def _gather_time_env(x: jax.Array, time_idx: jax.Array, env_idx: jax.Array) -> j
 
 
 @struct.dataclass
-class JAXReplayBuffer:
+class GPUReplayBuffer:
     observations: ObsTree
     actions: jax.Array
     rewards: jax.Array
@@ -409,8 +407,7 @@ class JAXReplayBuffer:
 
     buffer_size: int = struct.field(pytree_node=False)
     n_envs: int = struct.field(pytree_node=False)
-    obs_shape: tuple[int, ...] | dict[str, tuple[int, ...]
-                                      ] = struct.field(pytree_node=False)
+    obs_shape: tuple[int, ...] | dict[str, tuple[int, ...]] = struct.field(pytree_node=False)
     action_shape: tuple[int, ...] = struct.field(pytree_node=False)
     obs_dtype: jnp.dtype = struct.field(pytree_node=False)
     action_dtype: jnp.dtype = struct.field(pytree_node=False)
@@ -430,7 +427,7 @@ class JAXReplayBuffer:
         action_dtype: jnp.dtype = jnp.float32,
         linear_decay_steps: int = 0,
         min_weight: float = 0.1,
-    ) -> 'JAXReplayBuffer':
+    ) -> 'GPUReplayBuffer':
         """Initialize a JIT-friendly replay buffer.
 
         Notes:
@@ -445,6 +442,8 @@ class JAXReplayBuffer:
             raise ValueError("capacity must be positive")
         if n_envs <= 0:
             raise ValueError("n_envs must be positive")
+        if not 0.0 <= min_weight <= 1.0:
+            raise ValueError(f"min_weight must be in [0, 1], got {min_weight}")
 
         buffer_size = max(int(capacity) // int(n_envs), 1)
 
@@ -505,7 +504,7 @@ class JAXReplayBuffer:
             reward: jax.Array | np.ndarray,
             next_obs: ObsTree | np.ndarray,
             done: jax.Array | np.ndarray,
-    ) -> 'JAXReplayBuffer':
+    ) -> 'GPUReplayBuffer':
         """Add one transition for each env (vectorized) in a JIT-compatible way."""
         if isinstance(self.obs_shape, dict):
             assert isinstance(obs, dict) and isinstance(next_obs, dict), (
@@ -576,6 +575,57 @@ class JAXReplayBuffer:
             current_time=new_current_time,
         )
 
+    def _valid_time_mask(self) -> jax.Array:
+        idx = jnp.arange(self.buffer_size, dtype=self.size.dtype)
+        return idx < self.size
+
+    def _linear_bias_weights(self) -> jax.Array:
+        age = (self.current_time - self.timestamps).astype(jnp.float32)
+        decay = jnp.array(max(self.linear_decay_steps, 1), dtype=jnp.float32)
+        min_weight = jnp.array(self.min_weight, dtype=jnp.float32)
+
+        if self.raw_linear_decay_steps > 0:
+            return jnp.maximum(min_weight, 1.0 - age / decay)
+        return jnp.minimum(1.0, min_weight + age / decay)
+
+    def _biased_time_probabilities(self) -> jax.Array:
+        valid = self._valid_time_mask()
+        weights = jnp.where(valid, self._linear_bias_weights(), 0.0)
+        weight_sum = jnp.sum(weights)
+
+        valid_count = jnp.maximum(jnp.sum(valid), 1)
+        uniform_prob = valid.astype(jnp.float32) / valid_count.astype(jnp.float32)
+
+        safe_weight_sum = jnp.maximum(weight_sum, jnp.finfo(jnp.float32).tiny)
+        biased_prob = weights / safe_weight_sum
+        return jnp.where(weight_sum > 0.0, biased_prob, uniform_prob)
+
+    def _sample_uniform_time_indices(self, key: jax.Array, batch_size: int) -> jax.Array:
+        max_time = jnp.maximum(self.size, 1)
+        return jax.random.randint(key, (batch_size,), 0, max_time)
+
+    def _sample_biased_time_indices(self, key: jax.Array, batch_size: int) -> jax.Array:
+        def sample_non_empty(_: jax.Array) -> jax.Array:
+            probabilities = self._biased_time_probabilities()
+            return jax.random.choice(
+                key,
+                self.buffer_size,
+                shape=(batch_size,),
+                p=probabilities,
+            )
+
+        return jax.lax.cond(
+            self.size > 0,
+            sample_non_empty,
+            lambda _: jnp.zeros((batch_size,), dtype=jnp.int32),
+            operand=jnp.array(0, dtype=jnp.int32),
+        )
+
+    def _sample_time_indices(self, key: jax.Array, batch_size: int) -> jax.Array:
+        if self.raw_linear_decay_steps == 0:
+            return self._sample_uniform_time_indices(key, batch_size)
+        return self._sample_biased_time_indices(key, batch_size)
+
     def sample(
             self,
             key: jax.Array,
@@ -588,52 +638,8 @@ class JAXReplayBuffer:
             batch_size: number of transitions
             """
 
-            max_t = jnp.maximum(self.size, 1)
             key_t, key_e = jax.random.split(key, 2)
-
-            def _uniform_time_idx():
-                return jax.random.randint(key_t, (batch_size,), 0, max_t)
-
-            def _biased_time_idx():
-                def _do_biased():
-                    # Compute weights over [0, size). Mask invalid entries to 0 probability.
-                    idx = jnp.arange(self.buffer_size, dtype=jnp.int32)
-                    valid = idx < self.size
-                    age = (self.current_time - self.timestamps).astype(jnp.float32)
-
-                    # - newer-biased (raw > 0): w = max(min_weight, 1 - age/decay)
-                    # - older-biased (raw < 0): w = min(1, min_weight + age/decay)
-                    decay = jnp.array(self.linear_decay_steps, dtype=jnp.float32)
-                    decay = jnp.maximum(decay, 1.0)
-                    min_w = jnp.array(self.min_weight, dtype=jnp.float32)
-                    if self.raw_linear_decay_steps > 0:
-                        w = jnp.maximum(min_w, 1.0 - age / decay)
-                    else:
-                        w = jnp.minimum(1.0, min_w + age / decay)
-
-                    w = jnp.where(valid, w, 0.0)
-
-                    wsum = jnp.sum(w)
-                    # If weights sum to zero (shouldn't happen with sane configs), fall back to uniform.
-                    denom = jnp.maximum(jnp.sum(valid), 1)
-                    p = jnp.where(wsum > 0.0, w / wsum,
-                                valid.astype(jnp.float32) / denom)
-                    return jax.random.choice(key_t, self.buffer_size, shape=(batch_size,), p=p)
-
-                # If the buffer is empty, return zeros (caller should normally avoid sampling then).
-                return jax.lax.cond(
-                    self.size > 0,
-                    lambda _: _do_biased(),
-                    lambda _: jnp.zeros((batch_size,), dtype=jnp.int32),
-                    operand=jnp.int32(0),
-                )
-
-            time_idx = jax.lax.cond(
-                self.raw_linear_decay_steps == 0,
-                lambda _: _uniform_time_idx(),
-                lambda _: _biased_time_idx(),
-                operand=jnp.int32(0),
-            )
+            time_idx = self._sample_time_indices(key_t, batch_size)
             env_idx = jax.random.randint(key_e, (batch_size,), 0, self.n_envs)
 
             if isinstance(self.obs_shape, dict):
@@ -660,6 +666,4 @@ class JAXReplayBuffer:
             )
 
 
-
-
-
+JAXReplayBuffer = GPUReplayBuffer
