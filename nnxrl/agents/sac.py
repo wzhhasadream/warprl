@@ -125,6 +125,13 @@ class TrainState:
         actions, _ = self.actor.get_action(obs_for_policy, key=key)
         return self.replace(rms=rms), actions
 
+    def make_update_fn(config: SACConfig):
+        @nnx.jit
+        def jit_update(ts: TrainState, big_batch: Batch, key: jax.Array):
+            return update_sac(ts, config, key, big_batch)
+
+        return jit_update
+
 
 
     

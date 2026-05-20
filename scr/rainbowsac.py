@@ -1,7 +1,7 @@
 import nnxrl.utils.logger as wandb
 from flax import nnx
 from typing import Literal
-from nnxrl.agents.rainbowsac import update_rainbowsac, TrainState
+from nnxrl.agents.rainbowsac import TrainState
 from nnxrl.model import (
     Alpha,
     FlashSACDoubleCritic,
@@ -46,7 +46,7 @@ class Args:
     num_head: int = 100
     normalize_parameters: Literal[True, False] = False
 
-    action_repeat: int = 2
+    action_repeat: int = 1
     grad_step_per_env_step: int = 1
 
     eval_frequency: int = 1e4
@@ -114,8 +114,7 @@ def main():
                            critic_opt, alpha=alpha, alpha_opt=alpha_opt)
     start_time = time.time()
 
-    jit_update = nnx.jit(lambda ts, big_batch, key: update_rainbowsac(
-        ts, args, key, big_batch), donate_argnums=0)
+    jit_update = ts.make_update_fn(args)
     obs, _ = envs.reset(seed=args.seed)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed))
 

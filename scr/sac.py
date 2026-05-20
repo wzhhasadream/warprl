@@ -1,7 +1,7 @@
 import nnxrl.utils.logger as wandb
 from flax import nnx
 from typing import Literal, Sequence
-from nnxrl.agents.sac import update_sac, TrainState
+from nnxrl.agents.sac import TrainState
 from nnxrl.model import (
     Alpha,
     CoupleFlowActor,
@@ -144,8 +144,7 @@ def main():
     start_time = time.time()
 
 
-    jit_update = nnx.jit(lambda ts, big_batch, key: update_sac(
-        ts, args, key, big_batch), donate_argnums=0)
+    jit_update = ts.make_update_fn(args)
     obs, _ = envs.reset(seed=args.seed)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed))
 
