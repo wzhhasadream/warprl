@@ -4,7 +4,7 @@ from typing import Literal, Sequence
 from nnxrl.utils import ReplayBuffer, RMS, evaluate_policy
 from nnxrl.agents.td3 import update_td3, TrainState
 from nnxrl.model import EnsembleCritic, TanhDetActor, project_normalized_parameters
-from nnxrl.env import load_env
+from nnxrl.env import load_env, replace_truncated_next_obs
 import time
 import numpy as np
 import jax.numpy as jnp
@@ -134,9 +134,7 @@ def main():
         next_obs, rewards, terminations, truncations, infos = envs.step(
             actions)
 
-        real_next_obs = next_obs.copy()
-        if truncations.any():
-            real_next_obs[truncations] = infos["final_obs"][truncations]
+        real_next_obs = replace_truncated_next_obs(next_obs, truncations, infos)
 
         rb.add(
             obs,

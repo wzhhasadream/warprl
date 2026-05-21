@@ -59,11 +59,10 @@ class TrainState:
                actor_opt,
                critic_opt,
                alpha,
-               alpha_opt):
+               alpha_opt,
+               actor_obs_dim,
+               asymmetric_obs):
         target_critic = deepcopy(critic)
-        actor_obs_dim = actor.obs_dim
-        critic_obs_dim = critic.obs_dim
-        asymmetric_obs = not (actor_obs_dim == critic_obs_dim)
         return cls(
             actor=actor,
             critic=critic,

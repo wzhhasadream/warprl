@@ -8,14 +8,13 @@ from nnxrl.model import (
     FlashSACActor,
     project_normalized_parameters,
 )
-from nnxrl.env import make_venv_env
+from nnxrl.env import make_venv_env, replace_truncated_next_obs
 from nnxrl.utils import ReplayBuffer, evaluate_policy
 import time
 import numpy as np
 import jax
 import optax
 import tyro
-import gymnasium as gym
 import dataclasses
 
 
@@ -23,7 +22,7 @@ import dataclasses
 class Args:
     env_id: str = "Ant-v4"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench'] = 'mujoco'
+                      'humanoid_bench', 'playground'] = 'mujoco'
     seed: int = 1
     num_envs: int = 1
     total_timesteps: int = int(1e6)
@@ -69,8 +68,10 @@ def main():
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
     actor_obs_dim = obs_dim
+    asymmetric_obs = False
     if getattr(envs, 'asymmetric_obs', False):
         actor_obs_dim = envs.actor_observation_size
+        asymmetric_obs = True
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = 0.5 * action_dim * np.log(
         2.0 * np.pi * np.e * args.target_sigma ** 2
@@ -113,7 +114,7 @@ def main():
 
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt)
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, actor_obs_dim=actor_obs_dim, asymmetric_obs=asymmetric_obs)
     start_time = time.time()
 
     jit_update = ts.make_update_fn(args)
@@ -131,9 +132,7 @@ def main():
         next_obs, rewards, terminations, truncations, infos = envs.step(
             actions)
 
-        real_next_obs = next_obs.copy()
-        if truncations.any():
-            real_next_obs[truncations] = infos["final_obs"][truncations]
+        real_next_obs = replace_truncated_next_obs(next_obs, truncations, infos)
 
         rb.add(
             obs,

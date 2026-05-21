@@ -9,7 +9,7 @@ from nnxrl.model import (
     SquashedTanhGaussianActor,
     project_normalized_parameters,
 )
-from nnxrl.env import load_env
+from nnxrl.env import load_env, replace_truncated_next_obs
 from nnxrl.utils import RMS, ReplayBuffer, evaluate_policy
 import time
 import numpy as np
@@ -159,9 +159,7 @@ def main():
         next_obs, rewards, terminations, truncations, infos = envs.step(
             actions)
 
-        real_next_obs = next_obs.copy()
-        if truncations.any():
-            real_next_obs[truncations] = infos["final_obs"][truncations]
+        real_next_obs = replace_truncated_next_obs(next_obs, truncations, infos)
 
 
 
