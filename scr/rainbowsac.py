@@ -63,13 +63,13 @@ def main():
     if args.env_type == 'mujoco':
         args.action_repeat = 1
     np.random.seed(args.seed)
-    env = [load_env(args.env_id, args.env_type, args.action_repeat,
-                    args.seed + i) for i in range(args.num_envs)]
 
-    envs = gym.vector.SyncVectorEnv(env, autoreset_mode='SameStep')
+    envs = gym.vector.SyncVectorEnv([load_env(args.env_id, args.env_type, args.action_repeat,
+                                              args.seed + i) for i in range(args.num_envs)], autoreset_mode='SameStep')
 
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
+    obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = 0.5 * action_dim * np.log(
         2.0 * np.pi * np.e * args.target_sigma ** 2
     )
@@ -111,11 +111,11 @@ def main():
 
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt)
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt,
+                           actor_obs_dim=actor_obs_dim)
     start_time = time.time()
 
     jit_update = ts.make_update_fn(args)
-    obs, _ = envs.reset(seed=args.seed)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed))
 
     for global_step in range(1, args.total_timesteps + 1):
@@ -131,9 +131,8 @@ def main():
             actions)
 
         real_next_obs = next_obs.copy()
-        for idx, trunc in enumerate(truncations):
-            if trunc:
-                real_next_obs[idx] = infos["final_obs"][idx]
+        if truncations.any():
+            real_next_obs[truncations] = infos["final_obs"][truncations]
 
         rb.add(
             obs,

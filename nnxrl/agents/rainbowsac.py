@@ -12,7 +12,7 @@ FlashSACDoubleCritic,
 soft_update,
 quantile_loss,
 project_normalized_parameters)
-from ..utils.replaybuffer import Batch
+from ..utils.replaybuffer import Batch, GPUReplayBuffer
 from ..utils.checkpoint import load_states, save_states
 
 
@@ -48,6 +48,7 @@ class TrainState:
     critic_opt: nnx.Optimizer
     target_critic: FlashSACDoubleCritic
     alpha_opt: nnx.Optimizer
+    actor_obs_dim: int | None = struct.field(pytree_node=False, default=None)   # Use actor-only observations when set.
     grad_updates: int = 0
 
     @classmethod
@@ -57,7 +58,8 @@ class TrainState:
                actor_opt,
                critic_opt,
                alpha,
-               alpha_opt):
+               alpha_opt,
+               actor_obs_dim=None):
         target_critic = deepcopy(critic)
         return cls(
             actor=actor,
@@ -67,7 +69,8 @@ class TrainState:
             critic_opt=critic_opt,
             alpha=alpha,
             alpha_opt=alpha_opt,
-            grad_updates=0
+            grad_updates=0,
+            actor_obs_dim=actor_obs_dim
         )
 
     def save(self, path: str):
@@ -79,7 +82,8 @@ class TrainState:
             "critic_opt": self.critic_opt,
             "alpha": self.alpha,
             "alpha_opt": self.alpha_opt,
-            "grad_updates": self.grad_updates
+            "grad_updates": self.grad_updates,
+            "actor_obs_dim": self.actor_obs_dim
         })
 
     def load(self, path: str):
@@ -91,36 +95,75 @@ class TrainState:
             "critic_opt": self.critic_opt,
             "alpha": self.alpha,
             "alpha_opt": self.alpha_opt,
-            "grad_updates": self.grad_updates
+            "grad_updates": self.grad_updates,
+            "actor_obs_dim": self.actor_obs_dim
         })
 
         return self.replace(**model_dict)
 
+    def select_actor_observations(self, observations: jax.Array) -> jax.Array:
+        if self.actor_obs_dim is None:
+            return observations
+        return observations[..., : self.actor_obs_dim]
+
     @nnx.jit
     def get_action(self, obs):
+        obs = self.select_actor_observations(obs)
         actions = self.actor.get_mean_action(obs)
         return actions
 
     @nnx.jit
     def get_exploration_action(self, obs: jax.Array, key: jax.Array):
+        obs = self.select_actor_observations(obs)
         actions, _ = self.actor.get_action(obs, key=key, training=False)
         return  actions
 
     def make_update_fn(self, config: RainbowSACConfig):
-        @nnx.jit
+        @nnx.jit(donate_argnums=0)
         def jit_update(ts: TrainState, big_batch: Batch, key: jax.Array):
             return update_rainbowsac(ts, config, key, big_batch)
 
         return jit_update
 
 
+    def make_train_step(self, config: RainbowSACConfig):
+        @nnx.jit(donate_argnums=(0, 1))
+        def train_step(ts: TrainState, rb: GPUReplayBuffer, transition: Batch, key: jax.Array):
+            rb = rb.add(
+                transition.observations,
+                transition.actions,
+                transition.rewards,
+                transition.next_observations,
+                transition.dones,
+            )
+            zeros = jnp.array(0.0)
+            zero_info = {
+                "training/q_loss": zeros,
+                "training/q_mean": zeros,
+                "training/actor_loss": zeros,
+                "training/alpha_loss": zeros,
+                "training/Qlpha_value": zeros
+            }
+            sample_key, update_key = jax.random.split(key)
+            ts, info = nnx.cond(
+                rb.size * rb.n_envs > config.learning_starts,
+                lambda ts, rb: update_rainbowsac(ts, config, update_key, rb.sample(sample_key, config.batch_size * config.grad_step_per_env_step)),
+                lambda ts, rb: (ts, zero_info),
+                ts, rb
+            )
+
+            return ts, rb, info
+
+        return train_step
+
 
 def update_critic(ts: TrainState, config: RainbowSACConfig, batch: Batch, key: jax.Array):
     alpha_value = ts.alpha() 
+    actor_next_observations = ts.select_actor_observations(batch.next_observations)
     next_actions, next_log_pi = ts.actor.get_action(
-            batch.next_observations, key=key, training=False)
-    obs_all = jnp.concat([batch.observations, batch.next_observations], axis=0)
-    actions_all = jnp.concat([batch.actions, next_actions], axis=0)
+            actor_next_observations, key=key, training=False)
+    obs_all = jnp.concatenate([batch.observations, batch.next_observations], axis=0)
+    actions_all = jnp.concatenate([batch.actions, next_actions], axis=0)
 
     def critic_loss_fn(critic: FlashSACDoubleCritic, target_critic: FlashSACDoubleCritic):
         q = critic(obs_all, actions_all, training=True)[:, : config.batch_size, :]
@@ -178,10 +221,11 @@ def update_actor(
     """Update actor parameters and return the updated TrainState."""
     alpha_value = train_state.alpha()
     alpha_value = jax.lax.stop_gradient(alpha_value)
+    actor_observations = train_state.select_actor_observations(batch.observations)
 
     def actor_loss_fn(actor: FlashSACActor, critic: FlashSACDoubleCritic):
         actions, log_pi = actor.get_action(
-            batch.observations, key=key, training=True)
+            actor_observations, key=key, training=True)
         if config.num_head == 1:
             q = critic(batch.observations, actions, training=False)
             min_q = jnp.min(q, axis=0)
@@ -207,7 +251,8 @@ def update_alpha(
     key: jax.Array,
 ) -> tuple[TrainState, dict[str, jax.Array]]:
     """Update entropy temperature (alpha) and return the updated TrainState."""
-    log_pi = train_state.actor.get_action(batch.observations, key=key, training=False)[1]
+    actor_observations = train_state.select_actor_observations(batch.observations)
+    log_pi = train_state.actor.get_action(actor_observations, key=key, training=False)[1]
     log_pi = jax.lax.stop_gradient(log_pi)
 
     def alpha_loss_fn(alpha_model: Alpha):

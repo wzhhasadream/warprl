@@ -58,7 +58,7 @@ def get_obs_shape(
         raise NotImplementedError(f"{observation_space} observation space is not supported")
 
 
-ObsTree = jax.Array | dict[str, jax.Array]
+ObsTree = jax.Array
 
 class Batch(NamedTuple):
     observations: ObsTree
@@ -66,6 +66,8 @@ class Batch(NamedTuple):
     rewards: jax.Array
     dones: jax.Array
     next_observations: ObsTree
+
+
 
 
 def create_batch(
@@ -395,11 +397,11 @@ def _gather_time_env(x: jax.Array, time_idx: jax.Array, env_idx: jax.Array) -> j
 
 @struct.dataclass
 class GPUReplayBuffer:
-    observations: ObsTree
+    observations: jax.Array
     actions: jax.Array
     rewards: jax.Array
     dones: jax.Array
-    next_observations: ObsTree
+    next_observations: jax.Array
     ptr: jax.Array
     size: jax.Array
     timestamps: jax.Array
@@ -407,7 +409,7 @@ class GPUReplayBuffer:
 
     buffer_size: int = struct.field(pytree_node=False)
     n_envs: int = struct.field(pytree_node=False)
-    obs_shape: tuple[int, ...] | dict[str, tuple[int, ...]] = struct.field(pytree_node=False)
+    obs_shape: tuple[int, ...] = struct.field(pytree_node=False)
     action_shape: tuple[int, ...] = struct.field(pytree_node=False)
     obs_dtype: jnp.dtype = struct.field(pytree_node=False)
     action_dtype: jnp.dtype = struct.field(pytree_node=False)
@@ -418,7 +420,7 @@ class GPUReplayBuffer:
     @classmethod
     def create(
         cls,
-        observation_shape: tuple[int, ...] | dict[str, tuple[int, ...]] | int,
+        observation_shape: tuple[int, ...] | int,
         action_shape: tuple[int, ...],
         capacity: int,
         n_envs: int,
@@ -431,7 +433,6 @@ class GPUReplayBuffer:
         """Initialize a JIT-friendly replay buffer.
 
         Notes:
-        - `observation_shape` may be a dict, e.g. {"state": ..., "privileged_state": ...}.
         - If `linear_decay_steps != 0`, sampling uses an exact time-biased distribution
             (matching the CPU ReplayBuffer implementation in this repo):
             * `> 0`: newer-biased (prefer recent experiences)
@@ -450,11 +451,7 @@ class GPUReplayBuffer:
         def zeros_obs(shape_spec: tuple[int, ...]) -> jax.Array:
             return jnp.zeros((buffer_size, n_envs, *shape_spec), dtype=obs_dtype)
 
-        if isinstance(observation_shape, dict):
-            observations = {k: zeros_obs(v) for k, v in observation_shape.items()}
-            next_observations = {k: zeros_obs(v)
-                                for k, v in observation_shape.items()}
-        elif isinstance(observation_shape, tuple):
+        if isinstance(observation_shape, tuple):
             observations = zeros_obs(observation_shape)
             next_observations = zeros_obs(observation_shape)
         elif isinstance(observation_shape, int):
@@ -463,7 +460,7 @@ class GPUReplayBuffer:
             next_observations = zeros_obs(observation_shape)
         else:
             raise TypeError(
-                f"expected obs_dim to be int|tuple|dict, got {type(observation_shape)}")
+                f"expected obs_dim to be int|tuple, got {type(observation_shape)}")
 
         actions = jnp.zeros(
             (buffer_size, n_envs, *action_shape), dtype=action_dtype)
@@ -499,43 +496,20 @@ class GPUReplayBuffer:
     @jax.jit
     def add(
             self,
-            obs: ObsTree | np.ndarray,
+            obs: jax.Array | np.ndarray,
             action: jax.Array | np.ndarray,
             reward: jax.Array | np.ndarray,
-            next_obs: ObsTree | np.ndarray,
+            next_obs: jax.Array | np.ndarray,
             done: jax.Array | np.ndarray,
     ) -> 'GPUReplayBuffer':
         """Add one transition for each env (vectorized) in a JIT-compatible way."""
-        if isinstance(self.obs_shape, dict):
-            assert isinstance(obs, dict) and isinstance(next_obs, dict), (
-                "When observation_shape is a dict, obs and next_obs must be dicts with matching keys."
-            )
-            obs_arr = {
-                k: _reshape_obs_leaf(obs[k], shape_spec,
-                                    self.n_envs, self.obs_dtype)
-                for k, shape_spec in self.obs_shape.items()
-            }
-            next_obs_arr = {
-                k: _reshape_obs_leaf(
-                    next_obs[k], shape_spec, self.n_envs, self.obs_dtype)
-                for k, shape_spec in self.obs_shape.items()
-            }
-            new_observations = {k: self.observations[k].at[self.ptr].set(
-                v) for k, v in obs_arr.items()}
-            new_next_observations = {
-                k: self.next_observations[k].at[self.ptr].set(v) for k, v in next_obs_arr.items()
-            }
-        else:
-            assert not isinstance(obs, dict) and not isinstance(next_obs, dict), (
-                "When observation_shape is a tuple, obs and next_obs must be arrays."
-            )
-            obs_arr = _reshape_obs_leaf(
-                obs, self.obs_shape, self.n_envs, self.obs_dtype)
-            next_obs_arr = _reshape_obs_leaf(
-                next_obs, self.obs_shape, self.n_envs, self.obs_dtype)
-            new_observations = self.observations.at[self.ptr].set(obs_arr)
-            new_next_observations = self.next_observations.at[self.ptr].set(
-                next_obs_arr)
+        obs_arr = _reshape_obs_leaf(
+            obs, self.obs_shape, self.n_envs, self.obs_dtype)
+        next_obs_arr = _reshape_obs_leaf(
+            next_obs, self.obs_shape, self.n_envs, self.obs_dtype)
+        new_observations = self.observations.at[self.ptr].set(obs_arr)
+        new_next_observations = self.next_observations.at[self.ptr].set(
+            next_obs_arr)
 
         action_arr = _reshape_action(
             action, self.action_shape, self.n_envs, self.action_dtype)
@@ -642,16 +616,9 @@ class GPUReplayBuffer:
             time_idx = self._sample_time_indices(key_t, batch_size)
             env_idx = jax.random.randint(key_e, (batch_size,), 0, self.n_envs)
 
-            if isinstance(self.obs_shape, dict):
-                observations = {k: _gather_time_env(
-                    v, time_idx, env_idx) for k, v in self.observations.items()}
-                next_observations = {
-                    k: _gather_time_env(v, time_idx, env_idx) for k, v in self.next_observations.items()
-                }
-            else:
-                observations = _gather_time_env(self.observations, time_idx, env_idx)
-                next_observations = _gather_time_env(
-                    self.next_observations, time_idx, env_idx)
+            observations = _gather_time_env(self.observations, time_idx, env_idx)
+            next_observations = _gather_time_env(
+                self.next_observations, time_idx, env_idx)
 
             actions = _gather_time_env(self.actions, time_idx, env_idx)
             rewards = _gather_time_env(self.rewards, time_idx, env_idx)

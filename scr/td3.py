@@ -135,9 +135,8 @@ def main():
             actions)
 
         real_next_obs = next_obs.copy()
-        for idx, trunc in enumerate(truncations):
-            if trunc:
-                real_next_obs[idx] = infos["final_obs"][idx]
+        if truncations.any():
+            real_next_obs[truncations] = infos["final_obs"][truncations]
 
         rb.add(
             obs,
