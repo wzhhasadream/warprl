@@ -2,18 +2,24 @@ from typing import Callable
 import gymnasium 
 import numpy as np
 from gymnasium.wrappers.utils import RunningMeanStd
+from gymnasium.vector import VectorEnv
 
 def evaluate_policy(
-    env_creater: Callable| list[Callable],
+    envs: Callable| list[Callable]| VectorEnv,
     policy: Callable[[np.ndarray], np.ndarray],
     eval_episodes: int = 100,
     num_envs: int = 10,
+    seed: int = 0,
     rms: RunningMeanStd | None = None
 ) -> dict:
-    if isinstance(env_creater, list):
-        envs = gymnasium.vector.SyncVectorEnv(env_creater)
+    if isinstance(envs, list):
+        envs = gymnasium.vector.SyncVectorEnv(envs)
+    elif callable(envs):
+        envs = gymnasium.vector.SyncVectorEnv([envs for _ in range(num_envs)])
+    elif isinstance(envs, VectorEnv):
+        pass
     else:
-        envs = gymnasium.vector.SyncVectorEnv([env_creater] * num_envs)
+        raise TypeError(f"Unsupported envs type: {type(envs)}")
     envs = gymnasium.wrappers.vector.RecordEpisodeStatistics(envs)
     if rms is not None:
         import copy
@@ -21,7 +27,7 @@ def evaluate_policy(
         envs.obs_rms = copy.deepcopy(rms)
         envs.update_running_mean = False
 
-    obs, _ = envs.reset()
+    obs, _ = envs.reset(seed=seed)
 
     episodic_returns = []
     episodic_success = []

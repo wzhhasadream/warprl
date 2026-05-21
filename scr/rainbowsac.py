@@ -64,7 +64,7 @@ def main():
         args.action_repeat = 1
     np.random.seed(args.seed)
 
-    envs = make_venv_env(args.env_id, args.env_type, args.num_envs, args.action_repeat, args.seed)
+    envs, eval_envs = make_venv_env(args.env_id, args.env_type, args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
 
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
@@ -153,16 +153,14 @@ def main():
             if global_step % args.eval_frequency == 0:
                 def policy(obs): return ts.get_action(obs)
                 wall_time = time.time() - start_time
-                eval_info = evaluate_policy(load_env(
-                    args.env_id, args.env_type, args.action_repeat, args.seed + 100), policy, args.eval_episode)
+                eval_info = evaluate_policy(eval_envs, policy, args.eval_episode)
                 wandb.log(
                     {**info, **eval_info, "eval/wall_time": wall_time}, global_step)
         obs = next_obs
 
     envs.close()
     def policy(obs): return ts.get_action(obs)
-    final_info = evaluate_policy(load_env(
-        args.env_id, args.env_type, args.action_repeat, args.seed + 100), policy, args.eval_episode)
+    final_info = evaluate_policy(eval_envs, policy, args.eval_episode)
     wall_time = time.time() - start_time
     wandb.log({**final_info, "eval/wall_time": wall_time},
               args.total_timesteps)
