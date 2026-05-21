@@ -8,7 +8,7 @@ from nnxrl.model import (
     FlashSACActor,
     project_normalized_parameters,
 )
-from nnxrl.env import load_env
+from nnxrl.env import make_venv_env
 from nnxrl.utils import ReplayBuffer, evaluate_policy
 import time
 import numpy as np
@@ -64,11 +64,13 @@ def main():
         args.action_repeat = 1
     np.random.seed(args.seed)
 
-    envs = gym.vector.SyncVectorEnv([load_env(args.env_id, args.env_type, args.action_repeat,
-                                              args.seed + i) for i in range(args.num_envs)], autoreset_mode='SameStep')
+    envs = make_venv_env(args.env_id, args.env_type, args.num_envs, args.action_repeat, args.seed)
 
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
+    actor_obs_dim = obs_dim
+    if getattr(envs, 'asymmetric_obs', False):
+        actor_obs_dim = envs.actor_observation_size
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = 0.5 * action_dim * np.log(
         2.0 * np.pi * np.e * args.target_sigma ** 2
@@ -78,7 +80,7 @@ def main():
 
     rngs = nnx.Rngs(args.seed)
     actor = FlashSACActor(
-            obs_dim, action_dim, rngs.fork(),
+        actor_obs_dim, action_dim, rngs.fork(),
             hidden_dim=args.actor_hidden_dim,
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
@@ -111,8 +113,7 @@ def main():
 
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt,
-                           actor_obs_dim=actor_obs_dim)
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt)
     start_time = time.time()
 
     jit_update = ts.make_update_fn(args)

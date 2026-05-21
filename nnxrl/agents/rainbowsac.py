@@ -48,7 +48,8 @@ class TrainState:
     critic_opt: nnx.Optimizer
     target_critic: FlashSACDoubleCritic
     alpha_opt: nnx.Optimizer
-    actor_obs_dim: int | None = struct.field(pytree_node=False, default=None)   # Use actor-only observations when set.
+    actor_obs_dim: int = struct.field(pytree_node=False)   
+    asymmetric_obs: bool = struct.field(pytree_node=False, default=False)      # Use actor-only observations when set.
     grad_updates: int = 0
 
     @classmethod
@@ -58,9 +59,11 @@ class TrainState:
                actor_opt,
                critic_opt,
                alpha,
-               alpha_opt,
-               actor_obs_dim=None):
+               alpha_opt):
         target_critic = deepcopy(critic)
+        actor_obs_dim = actor.obs_dim
+        critic_obs_dim = critic.obs_dim
+        asymmetric_obs = not (actor_obs_dim == critic_obs_dim)
         return cls(
             actor=actor,
             critic=critic,
@@ -70,7 +73,8 @@ class TrainState:
             alpha=alpha,
             alpha_opt=alpha_opt,
             grad_updates=0,
-            actor_obs_dim=actor_obs_dim
+            actor_obs_dim=actor_obs_dim,
+            asymmetric_obs=asymmetric_obs
         )
 
     def save(self, path: str):
@@ -102,7 +106,7 @@ class TrainState:
         return self.replace(**model_dict)
 
     def select_actor_observations(self, observations: jax.Array) -> jax.Array:
-        if self.actor_obs_dim is None:
+        if not self.asymmetric_obs:
             return observations
         return observations[..., : self.actor_obs_dim]
 
