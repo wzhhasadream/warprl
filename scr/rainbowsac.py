@@ -40,7 +40,7 @@ class Args:
     target_sigma: float = 0.15
     critic_hidden_dim: int = 256
     critic_num_blocks: int = 2
-    actor_hidden_dim: int = 256
+    actor_hidden_dim: int = 128
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 100
