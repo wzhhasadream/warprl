@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from .layer import FlashSACBlock, FlashSACEmbedder, orthogonal
+from .layer import SimBaEncoder, orthogonal, FlashSACEncoder
 from .policy import (
     SquashedTanhGaussianPolicy,
     action_scale_bias,
@@ -32,27 +32,18 @@ class FlashSACActor(nnx.Module):
             self.action_low, self.action_high
         )
 
-        self.embedder = FlashSACEmbedder(
-            input_dim=self.obs_dim,
-            hidden_dim=hidden_dim,
-            rngs=rngs,
-        )
-        self.blocks = [
-            FlashSACBlock(hidden_dim=hidden_dim, rngs=rngs)
-            for _ in range(num_blocks)
-        ]
-        self.post_norm = nnx.RMSNorm(hidden_dim, rngs=rngs)
+        self.encoder = FlashSACEncoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs)
         self.fc_mean = nnx.Linear(
             hidden_dim,
             action_dim,
             rngs=rngs,
-            kernel_init=orthogonal(1.0),
+            kernel_init=orthogonal(1),
         )
         self.fc_log_std = nnx.Linear(
             hidden_dim,
             action_dim,
             rngs=rngs,
-            kernel_init=orthogonal(1.0),
+            kernel_init=orthogonal(1),
         )
         self.policy = SquashedTanhGaussianPolicy(
             action_low=self.action_low,
@@ -62,18 +53,13 @@ class FlashSACActor(nnx.Module):
             squash_log_std=squash_log_std,
         )
 
-    def _encode(self, observations: jax.Array, training: bool) -> jax.Array:
-        x = self.embedder(observations, training=training)
-        for block in self.blocks:
-            x = block(x, training=training)
-        return self.post_norm(x)
 
     def __call__(
         self,
         observations: jax.Array,
         training: bool = True,
     ) -> tuple[jax.Array, jax.Array]:
-        x = self._encode(observations, training=training)
+        x = self.encoder(observations, training=training)
         mean = self.fc_mean(x)
         log_std = self.fc_log_std(x)
         return mean, log_std
@@ -90,7 +76,7 @@ class FlashSACActor(nnx.Module):
         return action, log_prob[:, None]
 
     def get_mean_action(self, observations: jax.Array) -> jax.Array:
-        x = self._encode(observations, training=False)
+        x = self.encoder(observations, training=False)
         mean = self.fc_mean(x)
         return jnp.tanh(mean) * self.action_scale + self.action_bias
 
@@ -107,21 +93,13 @@ class FlashSACQNetwork(nnx.Module):
     ):
         self.obs_dim = flattened_dim(obs_dim)
         self.action_dim = action_dim
-        self.embedder = FlashSACEmbedder(
-            input_dim=self.obs_dim + action_dim,
-            hidden_dim=hidden_dim,
-            rngs=rngs,
-        )
-        self.blocks = [
-            FlashSACBlock(hidden_dim=hidden_dim, rngs=rngs)
-            for _ in range(num_blocks)
-        ]
-        self.post_norm = nnx.RMSNorm(hidden_dim, rngs=rngs)
+        self.encoder = FlashSACEncoder(
+            self.obs_dim + self.action_dim, num_blocks, hidden_dim, rngs=rngs)
         self.out = nnx.Linear(
             hidden_dim,
             num_head,
             rngs=rngs,
-            kernel_init=orthogonal(1.0),
+            kernel_init=orthogonal(1),
         )
 
     def __call__(
@@ -131,10 +109,7 @@ class FlashSACQNetwork(nnx.Module):
         training: bool = True,
     ) -> jax.Array:
         x = jnp.concatenate((observations, actions), axis=-1)
-        x = self.embedder(x, training=training)
-        for block in self.blocks:
-            x = block(x, training=training)
-        x = self.post_norm(x)
+        x = self.encoder(x, training=training)
         return self.out(x)
 
 

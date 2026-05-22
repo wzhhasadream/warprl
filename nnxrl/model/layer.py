@@ -122,7 +122,7 @@ class ResidualBlock(nnx.Module):
         self.hidden_dim = hidden_dim
 
         # Layer normalization
-        self.layer_norm = nnx.LayerNorm(
+        self.layer_norm = nnx.BatchNorm(
             num_features=hidden_dim,
             rngs=rngs
         )
@@ -131,24 +131,24 @@ class ResidualBlock(nnx.Module):
         self.dense1 = nnx.Linear(
             in_features=hidden_dim,
             out_features=hidden_dim * 4,
-            kernel_init=nnx.initializers.he_normal(),
+            kernel_init=orthogonal(1),
             rngs=rngs
         )
 
         self.dense2 = nnx.Linear(
             in_features=hidden_dim * 4,
             out_features=hidden_dim,
-            kernel_init=nnx.initializers.he_normal(),  
+            kernel_init=orthogonal(1),  
             rngs=rngs
         )
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(self, x: jax.Array, training: bool) -> jax.Array:
         """Forward pass with residual connection."""
         # Store residual connection
         residual = x
 
         # Pre-norm residual block
-        x = self.layer_norm(x)
+        x = self.layer_norm(x, use_running_average=not training)
         x = self.dense1(x)
         x = nnx.relu(x)
         x = self.dense2(x)
@@ -184,6 +184,10 @@ class SimBaEncoder(nnx.Module):
         self.hidden_dim = hidden_dim
         self.num_blocks = num_blocks
 
+        self.first_bn = nnx.BatchNorm(
+            input_dim,
+            rngs=rngs
+        )
         self.input_projection = nnx.Linear(
             in_features=input_dim,
             out_features=hidden_dim,
@@ -198,12 +202,12 @@ class SimBaEncoder(nnx.Module):
         ]
 
         # Final layer norm
-        self.final_layer_norm = nnx.LayerNorm(
+        self.final_bn = nnx.BatchNorm(
             num_features=hidden_dim,
             rngs=rngs
         )
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(self, x: jax.Array, training: bool) -> jax.Array:
         """
         Forward pass through the encoder.
 
@@ -214,14 +218,15 @@ class SimBaEncoder(nnx.Module):
             encoded: Encoded features of shape (batch_size, hidden_dim)
         """
         # Initial projection
+        x = self.first_bn(x, use_running_average=not training)
         x = self.input_projection(x)
 
         # Apply residual blocks
         for block in self.residual_blocks:
-            x = block(x)
+            x = block(x, training)
 
         # Final layer normalization
-        x = self.final_layer_norm(x)
+        x = self.final_bn(x, use_running_average=not training)
 
         return x
 
@@ -255,6 +260,26 @@ class FlashSACBlock(nnx.Module):
         x = self.norm2(x, use_running_average=not training)
         x = nnx.relu(x)
         return x + residual
+
+
+class FlashSACEncoder(nnx.Module):
+    def __init__(self, 
+                input_dim: int,
+                num_blocks: int,
+                hidden_dim: int,
+                rngs: nnx.Rngs):
+        self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs)
+        self.blocks = [FlashSACBlock(hidden_dim, rngs) for _ in range(num_blocks)]
+        self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs)
+
+    def __call__(self, x: jax.Array, training: bool):
+        x = self.embed(x, training=training)
+        for block in self.blocks:
+            x = block(x, training=training)
+
+        x = self.rms(x)
+        
+        return x
 
         
 

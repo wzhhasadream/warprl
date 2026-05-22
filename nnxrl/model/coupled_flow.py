@@ -3,7 +3,7 @@ from typing import Sequence
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from .layer import MLP, SimBaEncoder
+from .layer import FlashSACEncoder
 from .policy import squash_tanh_action, squash_log_std_tanh
 
 def encode_low_to_high_batch(x: jax.Array, perm: jax.Array, dim: int) -> jax.Array:
@@ -48,35 +48,23 @@ class AlphaNetwork(nnx.Module):
         obs_dim: int,
         latent_dim: int,
         rngs: nnx.Rngs,
-        hidden_dim: Sequence[int] = (256, 256),
-        layer_norm: bool = False,
-        simba_encoder: bool = False
+        hidden_dim: int = 256,
+        num_blocks: int = 2,
     ):
-        if not simba_encoder:
-            self.backbone = MLP(
-                in_dim=int(latent_dim) + int(obs_dim),
-                hidden_dims=hidden_dim,
-                rngs=rngs.fork(),
-                activation_fn=jax.nn.mish,
-                layer_norm=layer_norm,
-            )
-            hidden_out = int(hidden_dim[-1])
-        elif simba_encoder:
-            self.backbone = SimBaEncoder(
-                int(latent_dim) + int(obs_dim), 128, 1)
-            hidden_out = 128
+        self.backbone = FlashSACEncoder(
+                int(latent_dim) + int(obs_dim), num_blocks, hidden_dim, rngs)
         self.scale_head = nnx.Linear(
-            hidden_out, int(latent_dim), rngs=rngs.fork())
+            hidden_dim, int(latent_dim), rngs=rngs.fork())
         self.bias_head = nnx.Linear(
-            hidden_out, int(latent_dim), rngs=rngs.fork())
+            hidden_dim, int(latent_dim), rngs=rngs.fork())
 
-    @nnx.vmap(in_axes=(None, None, None, 0, 0), out_axes=(0, 0))
     def __call__(
         self,
         x: jax.Array,
         obs: jax.Array,
         cond_mask: jax.Array,
         ode_mask: jax.Array,
+        training: bool
     ) -> tuple[jax.Array, jax.Array]:
         cond_mask = jnp.asarray(cond_mask, dtype=x.dtype)
         ode_mask = jnp.asarray(ode_mask, dtype=x.dtype)
@@ -85,13 +73,21 @@ class AlphaNetwork(nnx.Module):
         if ode_mask.ndim == 1:
             ode_mask = ode_mask[None, :]
 
-        cond_x = x * cond_mask
-        h = self.backbone(jnp.concatenate([cond_x, obs], axis=-1))
+        num_masks = cond_mask.shape[0]
+        batch_size = x.shape[0]
+        cond_x = x[None, :, :] * cond_mask[:, None, :]
+        obs = jnp.broadcast_to(obs[None, :, :], (num_masks,) + obs.shape)
+        network_input = jnp.concatenate([cond_x, obs], axis=-1)
+        network_input = network_input.reshape((num_masks * batch_size, -1))
+
+        h = self.backbone(network_input, training=training)
         raw_scale = squash_log_std_tanh(
-            self.scale_head(h), log_std_min=-5, log_std_max=2
+            self.scale_head(h), log_std_min=-10, log_std_max=2
         )
-        scale = (jnp.exp(raw_scale) - 1.0) * ode_mask
-        bias = self.bias_head(h) * ode_mask
+        scale = raw_scale.reshape((num_masks, batch_size, x.shape[-1]))
+        bias = self.bias_head(h).reshape((num_masks, batch_size, x.shape[-1]))
+        scale = (jnp.exp(scale) - 1.0) * ode_mask[:, None, :]
+        bias = bias * ode_mask[:, None, :]
         return scale, bias
 
 
@@ -102,9 +98,8 @@ class VelocityNetwork(nnx.Module):
         obs_dim: int,
         latent_dim: int,
         rngs: nnx.Rngs,
-        hidden_dim: Sequence[int] = (256, 256),
-        layer_norm: bool = False,
-        simba_encoder: bool = False
+        hidden_dim: int = 256,
+        num_blocks: int = 2
     ):
         self.split_dim = tuple(int(v) for v in split_dim)
         self.obs_dim = int(obs_dim)
@@ -136,16 +131,15 @@ class VelocityNetwork(nnx.Module):
             latent_dim=self.latent_dim,
             rngs=rngs.fork(),
             hidden_dim=hidden_dim,
-            layer_norm=layer_norm,
-            simba_encoder=simba_encoder,
+            num_blocks=num_blocks
         )
 
     def euler_step(
-        self, x: jax.Array, obs: jax.Array
+        self, x: jax.Array, obs: jax.Array, training: bool
     ) -> tuple[jax.Array, jax.Array]:
 
         scale, bias = self.networks(
-            x, obs, self.cond_masks, self.ode_masks)
+            x, obs, self.cond_masks, self.ode_masks, training)
 
         multiplier = 1.0 + scale.sum(0)
         x = x * multiplier + bias.sum(0)
@@ -160,13 +154,12 @@ class CoupleFlowActor(nnx.Module):
         obs_dim: int,
         action_dim: int,
         rngs: nnx.Rngs,
-        hidden_dim: Sequence[int] = (256, 256),
+        hidden_dim: int = 256,
+        num_blocks: int = 2,
         action_low: jax.Array = -1,
         action_high: jax.Array = 1,
-        num_steps: int = 5,
-        num_ode: int = 3,
-        layer_norm: bool = False,
-        simba_encoder: bool = False
+        num_step: int = 5,
+        num_ode: int = 3
     ):
         self.latent_dim = action_dim
         if num_ode > action_dim:
@@ -181,7 +174,7 @@ class CoupleFlowActor(nnx.Module):
 
         self.action_dim = int(action_dim)
         self.obs_dim = int(obs_dim)
-        self.num_steps = int(num_steps)
+        self.num_step = int(num_step)
 
         self.v = VelocityNetwork(
             split_dim=self.split_dim,
@@ -189,8 +182,7 @@ class CoupleFlowActor(nnx.Module):
             latent_dim=self.latent_dim,
             rngs=rngs.fork(),
             hidden_dim=hidden_dim,
-            layer_norm=layer_norm,
-            simba_encoder=simba_encoder,
+            num_blocks=num_blocks
         )
 
         self.action_low = jnp.asarray(action_low, dtype=jnp.float32)
@@ -199,14 +191,14 @@ class CoupleFlowActor(nnx.Module):
     def _base_log_prob(self, z: jax.Array) -> jax.Array:
         return -0.5 * jnp.sum(z**2 + jnp.log(2.0 * jnp.pi), axis=-1)
 
-    def _integrate(self, x: jax.Array, obs: jax.Array) -> tuple[jax.Array, jax.Array]:
+    def _integrate(self, x: jax.Array, obs: jax.Array, training: bool) -> tuple[jax.Array, jax.Array]:
         logdet = jnp.zeros((x.shape[0],), dtype=x.dtype)
-        for step in range(self.num_steps):
-            x, step_logdet = self.v.euler_step(x, obs)
+        for step in range(self.num_step):
+            x, step_logdet = self.v.euler_step(x, obs, training)
             logdet = logdet + step_logdet
         return x, logdet
 
-    def sample_and_log_prob(self, obs: jax.Array, *, key: jax.Array | None = None, noise: jax.Array | None = None) -> tuple[jax.Array, jax.Array]:
+    def sample_and_log_prob(self, obs: jax.Array, *, training: bool, key: jax.Array | None = None, noise: jax.Array | None = None) -> tuple[jax.Array, jax.Array]:
         if noise is not None:
             x_0 = noise
         elif key is not None:
@@ -217,7 +209,7 @@ class CoupleFlowActor(nnx.Module):
         z_0 = x_0
         if hasattr(self, 'perm'):
             z_0 = encode_low_to_high_batch(x_0, self.perm, self.latent_dim)
-        pre_action, flow_logdet = self._integrate(z_0, obs)
+        pre_action, flow_logdet = self._integrate(z_0, obs, training)
         pre_log_prob = self._base_log_prob(x_0) - flow_logdet
         if hasattr(self, 'inv_perm'):
             pre_action = decode_high_to_low_batch(
@@ -226,11 +218,11 @@ class CoupleFlowActor(nnx.Module):
                                               self.action_low, self.action_high)
         return action, log_prob
 
-    def get_action(self, obs: jax.Array, key: jax.Array) -> tuple[jax.Array, jax.Array]:
-        action, log_prob = self.sample_and_log_prob(obs, key=key)
+    def get_action(self, obs: jax.Array, key: jax.Array, training: bool) -> tuple[jax.Array, jax.Array]:
+        action, log_prob = self.sample_and_log_prob(obs, key=key, training=training)
         return action, log_prob[:, None]
 
 
     def get_mean_action(self, obs: jax.Array):
         noise = jnp.zeros((obs.shape[0], self.action_dim), dtype=jnp.float32)
-        return self.sample_and_log_prob(obs, noise=noise)[0]
+        return self.sample_and_log_prob(obs, noise=noise, training=False)[0]

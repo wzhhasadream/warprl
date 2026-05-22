@@ -5,6 +5,7 @@ from nnxrl.agents.rainbowsac import TrainState
 from nnxrl.model import (
     Alpha,
     FlashSACDoubleCritic,
+    CoupleFlowActor,
     FlashSACActor,
     project_normalized_parameters,
 )
@@ -39,7 +40,7 @@ class Args:
     target_sigma: float = 0.15
     critic_hidden_dim: int = 256
     critic_num_blocks: int = 2
-    actor_hidden_dim: int = 128
+    actor_hidden_dim: int = 256
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 100
@@ -52,6 +53,9 @@ class Args:
     eval_episode: int = 10
 
     decay_step: int = 80_000
+    coupled_flow: Literal[True, False] = False
+    num_ode: int = 1
+    num_step: int = 1
 
 
 def main():
@@ -80,7 +84,18 @@ def main():
     wandb.init(project='rainbowsac', config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
-    actor = FlashSACActor(
+    if args.coupled_flow:
+        actor = CoupleFlowActor(
+        actor_obs_dim, action_dim, rngs.fork(),
+            hidden_dim=args.actor_hidden_dim,
+            num_blocks=args.actor_num_blocks,
+            action_high=envs.single_action_space.high,
+            action_low=envs.single_action_space.low,
+            num_ode=args.num_ode,
+            num_step=args.num_step
+        )
+    else:
+        actor = FlashSACActor(
         actor_obs_dim, action_dim, rngs.fork(),
             hidden_dim=args.actor_hidden_dim,
             num_blocks=args.actor_num_blocks,
