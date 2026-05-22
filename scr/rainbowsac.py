@@ -30,9 +30,9 @@ class Args:
     buffer_size: int = int(1e6)
     policy_frequency: int = 2
     target_frequency: int = 1
-    learning_starts: int = int(5e3)
+    learning_starts: int = int(1e4)
     gamma: float = 0.99
-    tau: float = 0.005
+    tau: float = 0.01
     batch_size: int = 512
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
@@ -49,13 +49,14 @@ class Args:
     action_repeat: int = 1
     grad_step_per_env_step: int = 1
 
-    eval_frequency: int = 1e4
+    eval_frequency: int = 1e5
     eval_episode: int = 10
 
     decay_step: int = 80_000
     coupled_flow: Literal[True, False] = False
     num_ode: int = 1
     num_step: int = 1
+
 
 
 def main():
@@ -132,10 +133,19 @@ def main():
                            critic_opt, alpha=alpha, alpha_opt=alpha_opt, actor_obs_dim=actor_obs_dim, asymmetric_obs=asymmetric_obs)
     start_time = time.time()
 
+    def eval_and_log(ts, global_step):
+        def policy(obs):
+            return ts.get_action(obs)
+        wall_time = time.time() - start_time
+        info = evaluate_policy(eval_envs, policy, args.eval_episode)
+        wandb.log({**info, "eval/wall_time":wall_time}, global_step)
+
     jit_update = ts.make_update_fn(args)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed))
 
-    for global_step in range(1, args.total_timesteps + 1):
+    for global_step in range(0, args.total_timesteps):
+        if global_step % args.eval_frequency == 0:
+            eval_and_log(ts, global_step)
         if global_step < args.learning_starts:
             actions = np.array([envs.single_action_space.sample()
                                for _ in range(args.num_envs)])
@@ -164,20 +174,10 @@ def main():
                 ts, big_batch, jax.random.fold_in(
                     update_key, global_step)
             )
-            if global_step % args.eval_frequency == 0:
-                def policy(obs): return ts.get_action(obs)
-                wall_time = time.time() - start_time
-                eval_info = evaluate_policy(eval_envs, policy, args.eval_episode)
-                wandb.log(
-                    {**info, **eval_info, "eval/wall_time": wall_time}, global_step)
         obs = next_obs
 
     envs.close()
-    def policy(obs): return ts.get_action(obs)
-    final_info = evaluate_policy(eval_envs, policy, args.eval_episode)
-    wall_time = time.time() - start_time
-    wandb.log({**final_info, "eval/wall_time": wall_time},
-              args.total_timesteps)
+    eval_and_log(ts, args.total_timesteps)
     wandb.finish()
 
 
