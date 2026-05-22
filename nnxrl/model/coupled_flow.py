@@ -3,7 +3,7 @@ from typing import Sequence
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from .layer import FlashSACEncoder
+from .layer import orthogonal
 from .policy import squash_tanh_action, squash_log_std_tanh
 
 def encode_low_to_high_batch(x: jax.Array, perm: jax.Array, dim: int) -> jax.Array:
@@ -42,6 +42,73 @@ def make_perm_invperm(dim: int, key: jax.Array) -> tuple[jax.Array, jax.Array]:
     return perm, inv_perm
 
 
+class FlowResidualBlock(nnx.Module):
+    def __init__(self, hidden_dim: int, rngs: nnx.Rngs, expansion: int = 4):
+        self.norm = nnx.RMSNorm(hidden_dim, rngs=rngs.fork())
+        self.w1 = nnx.Linear(
+            hidden_dim,
+            hidden_dim * expansion,
+            use_bias=False,
+            kernel_init=orthogonal(1),
+            rngs=rngs.fork(),
+        )
+        self.w2 = nnx.Linear(
+            hidden_dim * expansion,
+            hidden_dim,
+            use_bias=False,
+            kernel_init=orthogonal(1),
+            rngs=rngs.fork(),
+        )
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        residual = x
+        x = self.norm(x)
+        x = self.w1(x)
+        x = nnx.relu(x)
+        x = self.w2(x)
+        x = nnx.relu(x)
+        return residual + x
+
+
+class FlowConditionerEncoder(nnx.Module):
+    def __init__(
+        self,
+        obs_dim: int,
+        latent_dim: int,
+        num_blocks: int,
+        hidden_dim: int,
+        rngs: nnx.Rngs,
+    ):
+        self.obs_dim = int(obs_dim)
+        self.latent_dim = int(latent_dim)
+        self.obs_norm = nnx.BatchNorm(num_features=self.obs_dim, rngs=rngs.fork())
+        self.input_projection = nnx.Linear(
+            self.latent_dim + self.obs_dim,
+            hidden_dim,
+            use_bias=False,
+            kernel_init=orthogonal(1),
+            rngs=rngs.fork(),
+        )
+        self.blocks = [
+            FlowResidualBlock(hidden_dim, rngs=rngs.fork())
+            for _ in range(num_blocks)
+        ]
+        self.final_norm = nnx.RMSNorm(hidden_dim, rngs=rngs.fork())
+
+    def __call__(
+        self,
+        cond_x: jax.Array,
+        obs: jax.Array,
+        training: bool,
+    ) -> jax.Array:
+        obs = self.obs_norm(obs, use_running_average=not training)
+        x = jnp.concatenate([cond_x, obs], axis=-1)
+        x = self.input_projection(x)
+        for block in self.blocks:
+            x = block(x)
+        return self.final_norm(x)
+
+
 class AlphaNetwork(nnx.Module):
     def __init__(
         self,
@@ -51,8 +118,13 @@ class AlphaNetwork(nnx.Module):
         hidden_dim: int = 256,
         num_blocks: int = 2,
     ):
-        self.backbone = FlashSACEncoder(
-                int(latent_dim) + int(obs_dim), num_blocks, hidden_dim, rngs)
+        self.backbone = FlowConditionerEncoder(
+            obs_dim=int(obs_dim),
+            latent_dim=int(latent_dim),
+            num_blocks=num_blocks,
+            hidden_dim=hidden_dim,
+            rngs=rngs,
+        )
         self.scale_head = nnx.Linear(
             hidden_dim, int(latent_dim), rngs=rngs.fork())
         self.bias_head = nnx.Linear(
@@ -77,10 +149,10 @@ class AlphaNetwork(nnx.Module):
         batch_size = x.shape[0]
         cond_x = x[None, :, :] * cond_mask[:, None, :]
         obs = jnp.broadcast_to(obs[None, :, :], (num_masks,) + obs.shape)
-        network_input = jnp.concatenate([cond_x, obs], axis=-1)
-        network_input = network_input.reshape((num_masks * batch_size, -1))
+        cond_x = cond_x.reshape((num_masks * batch_size, -1))
+        obs = obs.reshape((num_masks * batch_size, -1))
 
-        h = self.backbone(network_input, training=training)
+        h = self.backbone(cond_x, obs, training=training)
         raw_scale = squash_log_std_tanh(
             self.scale_head(h), log_std_min=-10, log_std_max=2
         )
