@@ -80,6 +80,9 @@ class FlashSACActor(nnx.Module):
         mean = self.fc_mean(x)
         return jnp.tanh(mean) * self.action_scale + self.action_bias
 
+    def normalize_params(self):
+        self.encoder.normalize_params()
+
 
 class FlashSACQNetwork(nnx.Module):
     def __init__(
@@ -113,6 +116,9 @@ class FlashSACQNetwork(nnx.Module):
         return self.out(x)
 
 
+    def normalize_parms(self):
+        self.encoder.normalize_parms()
+
 class FlashSACDoubleCritic(nnx.Module):
     """Ensembled scalar critic for FlashSAC-style training."""
 
@@ -143,3 +149,8 @@ class FlashSACDoubleCritic(nnx.Module):
         training: bool = True,
     ) -> jax.Array:
         return self.critic(observations, actions, training=training)
+
+    @nnx.vmap(in_axes=(0))
+    def normalize_params(self):
+        self.critic.encoder.normalize_params()
+        return 

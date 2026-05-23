@@ -11,57 +11,10 @@ def orthogonal(scale: jax.Array = jnp.sqrt(2)):
 
 def normalize_linear_kernel(kernel: jax.Array, eps: float = 1e-8) -> jax.Array:
     """Normalize each output column of an NNX Linear kernel to unit L2 norm."""
-    norm = jnp.linalg.norm(kernel, axis=0, keepdims=True)
+    norm = jnp.linalg.norm(kernel, keepdims=True)
     return kernel / jnp.maximum(norm, eps)
-    
 
 
-def normalize_scale_bias(
-    scale: jax.Array,
-    bias: jax.Array,
-    eps: float = 1e-8,
-) -> tuple[jax.Array, jax.Array]:
-    """Normalize affine scale and bias jointly to sqrt(feature_dim)."""
-    feature_dim = scale.shape[-1]
-    sqsum = jnp.sum(scale * scale + bias * bias, axis=-1, keepdims=True)
-    factor = jnp.sqrt(jnp.asarray(feature_dim, dtype=scale.dtype)) * jax.lax.rsqrt(sqsum + eps)
-    return scale * factor, bias * factor
-
-
-def normalize_scale(scale: jax.Array, eps: float = 1e-8) -> jax.Array:
-    feature_dim = scale.shape[-1]
-    sqsum = jnp.sum(scale * scale, axis=-1, keepdims=True)
-    factor = jnp.sqrt(jnp.asarray(feature_dim, dtype=scale.dtype)
-                      ) * jax.lax.rsqrt(sqsum + eps)
-    return scale * factor
-
-
-def project_normalized_parameters(module: Any) -> None:
-    seen: set[int] = set()
-    for _, value in nnx.iter_graph(module):
-        obj_id = id(value)
-        if obj_id in seen:
-            continue
-        seen.add(obj_id)
-
-        if isinstance(value, nnx.Linear):
-            value.kernel.value = normalize_linear_kernel(value.kernel.value)
-
-        elif isinstance(value, (nnx.LayerNorm, nnx.BatchNorm)):
-            if hasattr(value, "scale") and hasattr(value, "bias"):
-                scale = getattr(value, "scale", None)
-                bias = getattr(value, "bias", None)
-                if scale is not None and bias is not None:
-                    scale_v, bias_v = normalize_scale_bias(
-                        scale.value, bias.value
-                    )
-                    scale.value = scale_v
-                    bias.value = bias_v
-
-        elif hasattr(nnx, "RMSNorm") and isinstance(value, nnx.RMSNorm):
-            scale = getattr(value, "scale", None)
-            if scale is not None:
-                scale.value = normalize_scale(scale.value)
 
 
 class MLP(nnx.Module):
@@ -261,6 +214,10 @@ class FlashSACBlock(nnx.Module):
         x = nnx.relu(x)
         return x + residual
 
+    def normalize_params(self):
+        self.w1.kernel.value = normalize_linear_kernel(self.w1.kernel.value)
+        self.w2.kernel.value = normalize_linear_kernel(self.w2.kernel.value)
+
 
 class FlashSACEncoder(nnx.Module):
     def __init__(self, 
@@ -280,6 +237,10 @@ class FlashSACEncoder(nnx.Module):
         x = self.rms(x)
         
         return x
+
+    def normalize_params(self):
+        for block in self.blocks:
+            block.normalize_params()
 
         
 

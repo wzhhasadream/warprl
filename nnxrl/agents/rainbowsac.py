@@ -10,8 +10,7 @@ Alpha,
 FlashSACActor,
 FlashSACDoubleCritic,
 soft_update,
-quantile_loss,
-project_normalized_parameters)
+quantile_loss)
 from ..utils.replaybuffer import Batch, GPUReplayBuffer
 from ..utils.checkpoint import load_states, save_states
 
@@ -210,7 +209,7 @@ def update_critic(ts: TrainState, config: RainbowSACConfig, batch: Batch, key: j
         loss, has_aux=True)(ts.critic, ts.target_critic)
     ts.critic_opt.update(grads)
     if config.normalize_parameters:
-        project_normalized_parameters(ts.critic)
+        ts.critic.normalize_params()
     return ts, info
 
 
@@ -243,7 +242,7 @@ def update_actor(
     )(train_state.actor, train_state.critic)
     train_state.actor_opt.update(grads)
     if config.normalize_parameters:
-        project_normalized_parameters(train_state.actor)
+        train_state.actor.normalize_params()
     return train_state, info
 
 
