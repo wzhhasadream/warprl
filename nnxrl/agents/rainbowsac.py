@@ -115,9 +115,14 @@ class TrainState:
         return actions
 
     @nnx.jit
-    def get_exploration_action(self, obs: jax.Array, key: jax.Array):
+    def get_exploration_action(self, obs: jax.Array, exploration_noise: float, key: jax.Array):
+        action_key, noise_key = jax.random.split(key, 2)
         obs = self.select_actor_observations(obs)
-        actions, _ = self.actor.get_action(obs, key=key, training=False)
+        actions, _ = self.actor.get_action(obs, key=action_key, training=False)
+        noise = jax.random.normal(
+            noise_key, shape=actions.shape) * self.actor.action_scale * exploration_noise
+        actions = jnp.clip(
+            noise + actions, self.actor.action_low,  self.actor.action_high)
         return  actions
 
     def make_update_fn(self, config: RainbowSACConfig):

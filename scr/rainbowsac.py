@@ -16,7 +16,7 @@ import jax
 import optax
 import tyro
 import dataclasses
-
+from optax import cosine_decay_schedule
 
 @dataclasses.dataclass
 class Args:
@@ -43,6 +43,7 @@ class Args:
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 100
+    exploration_noise: int = 0.1
     normalize_parameters: Literal[True, False] = False
 
     action_repeat: int = 1
@@ -63,8 +64,8 @@ def main():
     print("=" * 60)
 
     args = tyro.cli(Args)
-    if args.env_type == 'mujoco':
-        args.action_repeat = 1
+    if args.env_type == 'myosuite':
+        args.eval_episode = 100
     np.random.seed(args.seed)
 
     envs, eval_envs = make_venv_env(args.env_id, args.env_type, args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
@@ -150,7 +151,7 @@ def main():
                                for _ in range(args.num_envs)])
         else:
             actions = ts.get_exploration_action(
-                obs=obs, key=jax.random.fold_in(action_key, global_step))
+                obs=obs, key=jax.random.fold_in(action_key, global_step), exploration_noise=args.exploration_noise)
             actions = np.asarray(actions)
 
         next_obs, rewards, terminations, truncations, infos = envs.step(
