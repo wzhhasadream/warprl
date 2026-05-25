@@ -1,7 +1,7 @@
 import nnxrl.utils.logger as wandb
 from flax import nnx
 from typing import Literal
-from nnxrl.agents.rainbowsac import TrainState
+from nnxrl.agents.rainbowsac import TrainState, build_truncated_zeta_cdf
 from nnxrl.model import (
     Alpha,
     FlashSACDoubleCritic,
@@ -13,6 +13,7 @@ from nnxrl.utils import ReplayBuffer, evaluate_policy
 import time
 import numpy as np
 import jax
+import jax.numpy as jnp
 import optax
 import tyro
 import dataclasses
@@ -43,7 +44,8 @@ class Args:
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 100
-    exploration_noise: int = 0.1
+    actor_noise_zeta_mu: float = 2.0
+    actor_noise_zeta_max: int = 16
     normalize_parameters: Literal[True, False] = False
 
     action_repeat: int = 1
@@ -141,7 +143,12 @@ def main():
         wandb.log({**info, "eval/wall_time":wall_time}, global_step)
 
     jit_update = ts.make_update_fn(args)
-    action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed))
+    action_key, update_key, noise_key = jax.random.split(jax.random.PRNGKey(args.seed), 3)
+    zeta_cdf = build_truncated_zeta_cdf(
+        args.actor_noise_zeta_mu, args.actor_noise_zeta_max)
+    cached_noise = jax.random.normal(noise_key, (args.num_envs, action_dim))
+    noise_repeat_count = jnp.array(0, dtype=jnp.int32)
+    noise_repeat_n = jnp.array(1, dtype=jnp.int32)
 
     for global_step in range(0, args.total_timesteps):
         if global_step % args.eval_frequency == 0:
@@ -150,8 +157,14 @@ def main():
             actions = np.array([envs.single_action_space.sample()
                                for _ in range(args.num_envs)])
         else:
-            actions = ts.get_exploration_action(
-                obs=obs, key=jax.random.fold_in(action_key, global_step), exploration_noise=args.exploration_noise)
+            actions, cached_noise, noise_repeat_count, noise_repeat_n = ts.get_exploration_action(
+                obs=obs,
+                noise=cached_noise,
+                repeat_count=noise_repeat_count,
+                repeat_n=noise_repeat_n,
+                zeta_cdf=zeta_cdf,
+                key=jax.random.fold_in(action_key, global_step),
+            )
             actions = np.asarray(actions)
 
         next_obs, rewards, terminations, truncations, infos = envs.step(

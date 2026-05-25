@@ -80,6 +80,12 @@ class FlashSACActor(nnx.Module):
         mean = self.fc_mean(x)
         return jnp.tanh(mean) * self.action_scale + self.action_bias
 
+
+    def get_mean_std(self, observations: jax.Array):
+        mean, raw_log_std = self(observations, False)
+        log_std = self.policy.transform_log_std(raw_log_std)
+        return mean, log_std
+
     def normalize_params(self):
         self.encoder.normalize_params()
 

@@ -15,6 +15,18 @@ from ..utils.replaybuffer import Batch, GPUReplayBuffer
 from ..utils.checkpoint import load_states, save_states
 
 
+def build_truncated_zeta_cdf(mu: float, max_n: int) -> jax.Array:
+    ns = jnp.arange(1, max_n + 1, dtype=jnp.float32)
+    pmf = ns ** (-mu)
+    return jnp.cumsum(pmf / jnp.sum(pmf))
+
+
+def sample_integer_from_cdf(cdf: jax.Array, key: jax.Array) -> jax.Array:
+    u = jax.random.uniform(key, ())
+    idx = jnp.argmax((u < cdf).astype(jnp.int32))
+    return (idx + 1).astype(jnp.int32)
+
+
 class RainbowSACConfig(Protocol):
     seed: int
     total_timesteps: int
@@ -115,15 +127,27 @@ class TrainState:
         return actions
 
     @nnx.jit
-    def get_exploration_action(self, obs: jax.Array, exploration_noise: float, key: jax.Array):
-        action_key, noise_key = jax.random.split(key, 2)
+    def get_exploration_action(
+        self,
+        obs: jax.Array,
+        noise: jax.Array,
+        repeat_count: jax.Array,
+        repeat_n: jax.Array,
+        zeta_cdf: jax.Array,
+        key: jax.Array,
+    ):
+        noise_key, repeat_key = jax.random.split(key, 2)
         obs = self.select_actor_observations(obs)
-        actions, _ = self.actor.get_action(obs, key=action_key, training=False)
-        noise = jax.random.normal(
-            noise_key, shape=actions.shape) * self.actor.action_scale * exploration_noise
-        actions = jnp.clip(
-            noise + actions, self.actor.action_low,  self.actor.action_high)
-        return  actions
+        mean, log_std = self.actor.get_mean_std(obs)
+        refresh = jnp.logical_or(repeat_count <= 0, repeat_count >= repeat_n)
+        new_noise = jax.random.normal(noise_key, shape=mean.shape)
+        new_repeat_n = sample_integer_from_cdf(zeta_cdf, repeat_key)
+        noise = jnp.where(refresh, new_noise, noise)
+        repeat_n = jnp.where(refresh, new_repeat_n, repeat_n)
+        repeat_count = jnp.where(refresh, jnp.array(0, dtype=repeat_count.dtype), repeat_count)
+        pre_action = mean + jnp.exp(log_std) * noise
+        actions = jnp.tanh(pre_action) * self.actor.action_scale + self.actor.action_bias
+        return actions, noise, repeat_count + 1, repeat_n
 
     def make_update_fn(self, config: RainbowSACConfig):
         @nnx.jit(donate_argnums=0)
