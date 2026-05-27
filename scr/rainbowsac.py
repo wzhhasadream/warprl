@@ -1,23 +1,21 @@
 import nnxrl.utils.logger as wandb
 from flax import nnx
 from typing import Literal
-from nnxrl.agents.rainbowsac import TrainState, build_truncated_zeta_cdf
+from nnxrl.agents.rainbowsac import TrainState
 from nnxrl.model import (
     Alpha,
     FlashSACDoubleCritic,
     CoupleFlowActor,
     FlashSACActor
 )
-from nnxrl.env import make_venv_env, replace_truncated_next_obs
-from nnxrl.utils import ReplayBuffer, evaluate_policy
+from nnxrl.env import make_venv_env
+from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_obs
 import time
 import numpy as np
 import jax
-import jax.numpy as jnp
 import optax
 import tyro
 import dataclasses
-from optax import cosine_decay_schedule
 
 @dataclasses.dataclass
 class Args:
@@ -44,9 +42,9 @@ class Args:
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 100
-    actor_noise_zeta_mu: float = 2.0
-    actor_noise_zeta_max: int = 16
+    exploration_noise: float = 0.5
     normalize_parameters: Literal[True, False] = False
+    asymmetric_obs: Literal[True, False] = False
 
     action_repeat: int = 1
     grad_step_per_env_step: int = 1
@@ -79,6 +77,7 @@ def main():
     if getattr(envs, 'asymmetric_obs', False):
         actor_obs_dim = envs.actor_observation_size
         asymmetric_obs = True
+    args.asymmetric_obs = asymmetric_obs
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = 0.5 * action_dim * np.log(
         2.0 * np.pi * np.e * args.target_sigma ** 2
@@ -132,7 +131,7 @@ def main():
 
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, actor_obs_dim=actor_obs_dim, asymmetric_obs=asymmetric_obs)
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, pre_noise=jax.random.normal(jax.random.PRNGKey(args.seed), (args.num_envs, action_dim)))
     start_time = time.time()
 
     def eval_and_log(ts, global_step):
@@ -143,12 +142,7 @@ def main():
         wandb.log({**info, "eval/wall_time":wall_time}, global_step)
 
     jit_update = ts.make_update_fn(args)
-    action_key, update_key, noise_key = jax.random.split(jax.random.PRNGKey(args.seed), 3)
-    zeta_cdf = build_truncated_zeta_cdf(
-        args.actor_noise_zeta_mu, args.actor_noise_zeta_max)
-    cached_noise = jax.random.normal(noise_key, (args.num_envs, action_dim))
-    noise_repeat_count = jnp.array(0, dtype=jnp.int32)
-    noise_repeat_n = jnp.array(1, dtype=jnp.int32)
+    action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed), 2)
 
     for global_step in range(0, args.total_timesteps):
         if global_step % args.eval_frequency == 0:
@@ -157,13 +151,10 @@ def main():
             actions = np.array([envs.single_action_space.sample()
                                for _ in range(args.num_envs)])
         else:
-            actions, cached_noise, noise_repeat_count, noise_repeat_n = ts.get_exploration_action(
+            ts, actions = ts.get_exploration_action(
                 obs=obs,
-                noise=cached_noise,
-                repeat_count=noise_repeat_count,
-                repeat_n=noise_repeat_n,
-                zeta_cdf=zeta_cdf,
                 key=jax.random.fold_in(action_key, global_step),
+                exploration_noise=args.exploration_noise
             )
             actions = np.asarray(actions)
 

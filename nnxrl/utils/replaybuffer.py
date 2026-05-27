@@ -109,7 +109,7 @@ class ReplayBuffer:
     Args:
         obs_shape_space: Observation space from environment
         action_shape_space: Action space from environment
-        max_size: Maximum buffer size
+        max_time_size: Maximum number of time slots
         n_envs: Number of parallel environments
         linear_decay_steps: Controls sampling bias direction:
             - 0: uniform sampling (no bias)
@@ -130,8 +130,10 @@ class ReplayBuffer:
         use_approximate_sampling: bool = True,
         optimize_memory_usage: bool = False
     ):
-        self.buffer_size = max(max_size // n_envs, 1)
+
+        self.max_time_size = max(int(max_size) // int(n_envs), 1)
         self.n_envs = n_envs
+        self.time_size = 0
         self.size = 0
         self.ptr = 0
         self.full = False
@@ -161,15 +163,15 @@ class ReplayBuffer:
         self.action_shape = (action_dim,)
 
         # Initialize buffers with proper shapes
-        self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=obs_shape_space.dtype)
-        self.actions = np.zeros((self.buffer_size, self.n_envs, *self.action_shape), dtype=action_shape_space.dtype)
-        self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
-        self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
+        self.observations = np.zeros((self.max_time_size, self.n_envs, *self.obs_shape), dtype=obs_shape_space.dtype)
+        self.actions = np.zeros((self.max_time_size, self.n_envs, *self.action_shape), dtype=action_shape_space.dtype)
+        self.rewards = np.zeros((self.max_time_size, self.n_envs), dtype=np.float32)
+        self.dones = np.zeros((self.max_time_size, self.n_envs), dtype=np.float32)
         if linear_decay_steps != 0:
-            self.timestamps = np.zeros(self.buffer_size, dtype=np.int64)  # Track when each sample was added
+            self.timestamps = np.zeros(self.max_time_size, dtype=np.int64)  # Track when each time slot was added
             self.current_time = 0
         if not optimize_memory_usage:
-            self.next_observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=obs_shape_space.dtype)    
+            self.next_observations = np.zeros((self.max_time_size, self.n_envs, *self.obs_shape), dtype=obs_shape_space.dtype)    
         # Initialize dictionary for truncated observations
         # Key: buffer_index (int), Value: {env_index (int): observation (np.ndarray)}
         if optimize_memory_usage:
@@ -183,14 +185,24 @@ class ReplayBuffer:
         linear_decay_steps: int = 0,
         min_weight: float = 0.1,
         num_buckets: int = 2000,
-        use_approximate_sampling: bool = False,
-        optimize_memory_usage: bool = False
+        use_approximate_sampling: bool = True,
+        optimize_memory_usage: bool = False,
     ) -> 'ReplayBuffer':
         """Create ReplayBuffer from environment - convenience method."""
         obs_shape_space = env.single_observation_space
         action_shape_space = env.single_action_space
         n_envs = getattr(env, 'num_envs', 1)
-        return cls(obs_shape_space, action_shape_space, max_size, n_envs, linear_decay_steps, min_weight, num_buckets, use_approximate_sampling, optimize_memory_usage)
+        return cls(
+            obs_shape_space,
+            action_shape_space,
+            n_envs=n_envs,
+            linear_decay_steps=linear_decay_steps,
+            min_weight=min_weight,
+            num_buckets=num_buckets,
+            use_approximate_sampling=use_approximate_sampling,
+            optimize_memory_usage=optimize_memory_usage,
+            max_size=max_size,
+        )
 
     def add(self, obs: np.ndarray, action: np.ndarray, reward: float | np.ndarray,
             next_obs: np.ndarray, done: bool | np.ndarray, truncations: None | np.ndarray = None):
@@ -203,7 +215,7 @@ class ReplayBuffer:
         if not self.optimize_memory_usage:
             self.next_observations[self.ptr] = next_obs.reshape(self.n_envs, *self.obs_shape)
         else:
-            self.observations[(self.ptr + 1) % self.buffer_size] = next_obs.reshape(self.n_envs, *self.obs_shape)
+            self.observations[(self.ptr + 1) % self.max_time_size] = next_obs.reshape(self.n_envs, *self.obs_shape)
             if self.ptr in self.truncated_next_obs:
                 del self.truncated_next_obs[self.ptr]
             trunc_indices = np.where(np.atleast_1d(truncations))[0]
@@ -220,9 +232,10 @@ class ReplayBuffer:
             self.current_time += 1
             
         self.ptr += 1
-        self.size = min(self.size + 1, self.buffer_size)
+        self.time_size = min(self.time_size + 1, self.max_time_size)
+        self.size = self.time_size * self.n_envs
 
-        if self.ptr == self.buffer_size:
+        if self.ptr == self.max_time_size:
             self.full = True
             self.ptr = 0
 
@@ -246,10 +259,10 @@ class ReplayBuffer:
                 if not self.full:  
                     batch_index = np.random.randint(0, self.ptr, size=batch_size)
                 else:  
-                    offsets = np.random.randint(0, self.buffer_size - 1, size=batch_size) # avoid samplering from the current pointer location
-                    batch_index = (self.ptr + 1 + offsets) % self.buffer_size
+                    offsets = np.random.randint(0, self.max_time_size - 1, size=batch_size) # avoid sampling from the current pointer location
+                    batch_index = (self.ptr + 1 + offsets) % self.max_time_size
             else:
-                batch_index = np.random.randint(0, self.size, size=batch_size)
+                batch_index = np.random.randint(0, self.time_size, size=batch_size)
         else:
             if self.use_approximate_sampling:
                 batch_index = self._sample_with_approximate_bias(batch_size)
@@ -259,7 +272,7 @@ class ReplayBuffer:
         env_index = np.random.randint(0, self.n_envs, size=batch_size)
 
         if self.optimize_memory_usage:
-            next_obs = self.observations[(batch_index + 1) % self.buffer_size, env_index].copy()
+            next_obs = self.observations[(batch_index + 1) % self.max_time_size, env_index].copy()
             for i in range(batch_size):
                 idx = batch_index[i]
                 env_idx = env_index[i]
@@ -281,7 +294,7 @@ class ReplayBuffer:
         Sample indices with linear bias weighting.
         Returns batch_index.
         """
-        valid_timestamps = self.timestamps[:self.size] 
+        valid_timestamps = self.timestamps[:self.time_size] 
         age = self.current_time - valid_timestamps
 
         if self._raw_linear_decay_steps > 0:
@@ -296,7 +309,7 @@ class ReplayBuffer:
 
         probabilities = weights / weights.sum()
 
-        batch_index = np.random.choice(self.size, size=batch_size, p=probabilities)
+        batch_index = np.random.choice(self.time_size, size=batch_size, p=probabilities)
     
         return batch_index
 
@@ -306,12 +319,12 @@ class ReplayBuffer:
         Returns batch_index.
         """
         # 1. Determine bucket size
-        bucket_size = self.size // self.num_buckets
+        bucket_size = self.time_size // self.num_buckets
         if bucket_size == 0:
             return self._sample_with_bias(batch_size)
 
         # 2. Calculate approximate weight for each bucket
-        mid_point_indices = np.arange(bucket_size // 2, self.size, bucket_size)
+        mid_point_indices = np.arange(bucket_size // 2, self.time_size, bucket_size)
         bucket_timestamps = self.timestamps[mid_point_indices]
         bucket_ages = self.current_time - bucket_timestamps
 
@@ -338,12 +351,12 @@ class ReplayBuffer:
         batch_index = bucket_starts + random_offsets
 
         # Ensure indices are within range
-        batch_index = np.minimum(batch_index, self.size - 1)
+        batch_index = np.minimum(batch_index, self.time_size - 1)
         if self.optimize_memory_usage:
             if self.full:
                 mask = (batch_index == self.ptr)
                 if np.any(mask):
-                    batch_index[mask] = (batch_index[mask] + 1) % self.buffer_size
+                    batch_index[mask] = (batch_index[mask] + 1) % self.max_time_size
 
         return batch_index
 
@@ -354,6 +367,7 @@ class ReplayBuffer:
     def reset(self):
         """Reset the buffer."""
         self.ptr = 0
+        self.time_size = 0
         self.size = 0
         self.current_time = 0
         if self.linear_decay_steps != 0:
@@ -365,7 +379,7 @@ class ReplayBuffer:
 
     def __repr__(self) -> str:
         decay_info = f", decay_steps={self.linear_decay_steps}, min_weight={self.min_weight}" if self.linear_decay_steps > 0 else ""
-        return f"ReplayBuffer(size={self.size}/{self.buffer_size}, obs_shape={self.obs_shape}, n_envs={self.n_envs}{decay_info})"
+        return f"ReplayBuffer(size={self.size}/{self.max_time_size * self.n_envs}, time_size={self.time_size}/{self.max_time_size}, obs_shape={self.obs_shape}, n_envs={self.n_envs}{decay_info})"
 
 
 
@@ -403,11 +417,12 @@ class GPUReplayBuffer:
     dones: jax.Array
     next_observations: jax.Array
     ptr: jax.Array
+    time_size: jax.Array
     size: jax.Array
     timestamps: jax.Array
     current_time: jax.Array
 
-    buffer_size: int = struct.field(pytree_node=False)
+    max_time_size: int = struct.field(pytree_node=False)
     n_envs: int = struct.field(pytree_node=False)
     obs_shape: tuple[int, ...] = struct.field(pytree_node=False)
     action_shape: tuple[int, ...] = struct.field(pytree_node=False)
@@ -422,8 +437,8 @@ class GPUReplayBuffer:
         cls,
         observation_shape: tuple[int, ...] | int,
         action_shape: tuple[int, ...],
-        capacity: int,
-        n_envs: int,
+        max_size: int = int(10e6),
+        n_envs: int = 1,
         *,
         obs_dtype: jnp.dtype = jnp.float32,
         action_dtype: jnp.dtype = jnp.float32,
@@ -439,17 +454,18 @@ class GPUReplayBuffer:
             * `< 0`: older-biased (prefer old experiences)
         """
 
-        if capacity <= 0:
-            raise ValueError("capacity must be positive")
+
+        max_time_size = max(int(max_size) // int(n_envs), 1)
+
         if n_envs <= 0:
             raise ValueError("n_envs must be positive")
         if not 0.0 <= min_weight <= 1.0:
             raise ValueError(f"min_weight must be in [0, 1], got {min_weight}")
 
-        buffer_size = max(int(capacity) // int(n_envs), 1)
+        max_time_size = int(max_time_size)
 
         def zeros_obs(shape_spec: tuple[int, ...]) -> jax.Array:
-            return jnp.zeros((buffer_size, n_envs, *shape_spec), dtype=obs_dtype)
+            return jnp.zeros((max_time_size, n_envs, *shape_spec), dtype=obs_dtype)
 
         if isinstance(observation_shape, tuple):
             observations = zeros_obs(observation_shape)
@@ -463,13 +479,14 @@ class GPUReplayBuffer:
                 f"expected obs_dim to be int|tuple, got {type(observation_shape)}")
 
         actions = jnp.zeros(
-            (buffer_size, n_envs, *action_shape), dtype=action_dtype)
-        rewards = jnp.zeros((buffer_size, n_envs), dtype=jnp.float32)
-        dones = jnp.zeros((buffer_size, n_envs), dtype=jnp.float32)
+            (max_time_size, n_envs, *action_shape), dtype=action_dtype)
+        rewards = jnp.zeros((max_time_size, n_envs), dtype=jnp.float32)
+        dones = jnp.zeros((max_time_size, n_envs), dtype=jnp.float32)
 
         ptr = jnp.array(0, dtype=jnp.int32)
+        time_size = jnp.array(0, dtype=jnp.int32)
         size = jnp.array(0, dtype=jnp.int32)
-        timestamps = jnp.zeros((buffer_size,), dtype=jnp.int32)
+        timestamps = jnp.zeros((max_time_size,), dtype=jnp.int32)
         current_time = jnp.array(0, dtype=jnp.int32)
 
         return cls(
@@ -479,10 +496,11 @@ class GPUReplayBuffer:
             dones=dones,
             next_observations=next_observations,
             ptr=ptr,
+            time_size=time_size,
             size=size,
             timestamps=timestamps,
             current_time=current_time,
-            buffer_size=buffer_size,
+            max_time_size=max_time_size,
             n_envs=n_envs,
             obs_shape=observation_shape,
             action_shape=action_shape,
@@ -493,7 +511,7 @@ class GPUReplayBuffer:
             min_weight=float(min_weight),
         )
 
-    @jax.jit
+
     def add(
             self,
             obs: jax.Array | np.ndarray,
@@ -534,8 +552,9 @@ class GPUReplayBuffer:
             self,
         )
 
-        new_ptr = (self.ptr + 1) % self.buffer_size
-        new_size = jnp.minimum(self.size + 1, self.buffer_size)
+        new_ptr = (self.ptr + 1) % self.max_time_size
+        new_time_size = jnp.minimum(self.time_size + 1, self.max_time_size)
+        new_size = new_time_size * jnp.array(self.n_envs, dtype=new_time_size.dtype)
 
         return self.replace(
             observations=new_observations,
@@ -544,14 +563,15 @@ class GPUReplayBuffer:
             dones=new_dones,
             next_observations=new_next_observations,
             ptr=new_ptr,
+            time_size=new_time_size,
             size=new_size,
             timestamps=new_timestamps,
             current_time=new_current_time,
         )
 
     def _valid_time_mask(self) -> jax.Array:
-        idx = jnp.arange(self.buffer_size, dtype=self.size.dtype)
-        return idx < self.size
+        idx = jnp.arange(self.max_time_size, dtype=self.time_size.dtype)
+        return idx < self.time_size
 
     def _linear_bias_weights(self) -> jax.Array:
         age = (self.current_time - self.timestamps).astype(jnp.float32)
@@ -575,7 +595,7 @@ class GPUReplayBuffer:
         return jnp.where(weight_sum > 0.0, biased_prob, uniform_prob)
 
     def _sample_uniform_time_indices(self, key: jax.Array, batch_size: int) -> jax.Array:
-        max_time = jnp.maximum(self.size, 1)
+        max_time = jnp.maximum(self.time_size, 1)
         return jax.random.randint(key, (batch_size,), 0, max_time)
 
     def _sample_biased_time_indices(self, key: jax.Array, batch_size: int) -> jax.Array:
@@ -583,13 +603,13 @@ class GPUReplayBuffer:
             probabilities = self._biased_time_probabilities()
             return jax.random.choice(
                 key,
-                self.buffer_size,
+                self.max_time_size,
                 shape=(batch_size,),
                 p=probabilities,
             )
 
         return jax.lax.cond(
-            self.size > 0,
+            self.time_size > 0,
             sample_non_empty,
             lambda _: jnp.zeros((batch_size,), dtype=jnp.int32),
             operand=jnp.array(0, dtype=jnp.int32),

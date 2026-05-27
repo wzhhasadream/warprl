@@ -1,4 +1,3 @@
-import trace
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -11,20 +10,8 @@ FlashSACActor,
 FlashSACDoubleCritic,
 soft_update,
 quantile_loss)
-from ..utils.replaybuffer import Batch, GPUReplayBuffer
-from ..utils.checkpoint import load_states, save_states
+from ..utils import Batch, GPUReplayBuffer, select_actor_observations, load_states, save_states
 
-
-def build_truncated_zeta_cdf(mu: float, max_n: int) -> jax.Array:
-    ns = jnp.arange(1, max_n + 1, dtype=jnp.float32)
-    pmf = ns ** (-mu)
-    return jnp.cumsum(pmf / jnp.sum(pmf))
-
-
-def sample_integer_from_cdf(cdf: jax.Array, key: jax.Array) -> jax.Array:
-    u = jax.random.uniform(key, ())
-    idx = jnp.argmax((u < cdf).astype(jnp.int32))
-    return (idx + 1).astype(jnp.int32)
 
 
 class RainbowSACConfig(Protocol):
@@ -48,6 +35,7 @@ class RainbowSACConfig(Protocol):
     alpha: float
     target_entropy: float
     normalize_parameters: bool
+    asymmetric_obs: bool
 
 
 @struct.dataclass
@@ -59,9 +47,10 @@ class TrainState:
     critic_opt: nnx.Optimizer
     target_critic: FlashSACDoubleCritic
     alpha_opt: nnx.Optimizer
-    actor_obs_dim: int = struct.field(pytree_node=False)   
+    pre_noise: jax.Array
     asymmetric_obs: bool = struct.field(pytree_node=False, default=False)      # Use actor-only observations when set.
     grad_updates: int = 0
+
 
     @classmethod
     def create(cls,
@@ -71,9 +60,11 @@ class TrainState:
                critic_opt,
                alpha,
                alpha_opt,
-               actor_obs_dim,
-               asymmetric_obs):
+               pre_noise):
         target_critic = deepcopy(critic)
+        asymmetric_obs = False
+        if actor.obs_dim != critic.critic.obs_dim:
+            asymmetric_obs = True
         return cls(
             actor=actor,
             critic=critic,
@@ -83,8 +74,8 @@ class TrainState:
             alpha=alpha,
             alpha_opt=alpha_opt,
             grad_updates=0,
-            actor_obs_dim=actor_obs_dim,
-            asymmetric_obs=asymmetric_obs
+            asymmetric_obs=asymmetric_obs,
+            pre_noise=pre_noise
         )
 
     def save(self, path: str):
@@ -96,8 +87,7 @@ class TrainState:
             "critic_opt": self.critic_opt,
             "alpha": self.alpha,
             "alpha_opt": self.alpha_opt,
-            "grad_updates": self.grad_updates,
-            "actor_obs_dim": self.actor_obs_dim
+            "grad_updates": self.grad_updates
         })
 
     def load(self, path: str):
@@ -109,45 +99,24 @@ class TrainState:
             "critic_opt": self.critic_opt,
             "alpha": self.alpha,
             "alpha_opt": self.alpha_opt,
-            "grad_updates": self.grad_updates,
-            "actor_obs_dim": self.actor_obs_dim
+            "grad_updates": self.grad_updates
         })
 
         return self.replace(**model_dict)
 
-    def select_actor_observations(self, observations: jax.Array) -> jax.Array:
-        if not self.asymmetric_obs:
-            return observations
-        return observations[..., : self.actor_obs_dim]
-
-    @nnx.jit
     def get_action(self, obs):
-        obs = self.select_actor_observations(obs)
-        actions = self.actor.get_mean_action(obs)
-        return actions
+        return _get_action(self.actor, obs, self.asymmetric_obs)
 
-    @nnx.jit
+
     def get_exploration_action(
         self,
         obs: jax.Array,
-        noise: jax.Array,
-        repeat_count: jax.Array,
-        repeat_n: jax.Array,
-        zeta_cdf: jax.Array,
         key: jax.Array,
+        exploration_noise: float = 0.5
     ):
-        noise_key, repeat_key = jax.random.split(key, 2)
-        obs = self.select_actor_observations(obs)
-        mean, log_std = self.actor.get_mean_std(obs)
-        refresh = jnp.logical_or(repeat_count <= 0, repeat_count >= repeat_n)
-        new_noise = jax.random.normal(noise_key, shape=mean.shape)
-        new_repeat_n = sample_integer_from_cdf(zeta_cdf, repeat_key)
-        noise = jnp.where(refresh, new_noise, noise)
-        repeat_n = jnp.where(refresh, new_repeat_n, repeat_n)
-        repeat_count = jnp.where(refresh, jnp.array(0, dtype=repeat_count.dtype), repeat_count)
-        pre_action = mean + jnp.exp(log_std) * noise
-        actions = jnp.tanh(pre_action) * self.actor.action_scale + self.actor.action_bias
-        return actions, noise, repeat_count + 1, repeat_n
+        noise, actions = _get_exploration_action(
+            self.actor, obs, self.asymmetric_obs, self.pre_noise, exploration_noise, key)
+        return self.replace(pre_noise=noise), actions
 
     def make_update_fn(self, config: RainbowSACConfig):
         @nnx.jit(donate_argnums=0)
@@ -173,11 +142,12 @@ class TrainState:
                 "training/q_mean": zeros,
                 "training/actor_loss": zeros,
                 "training/alpha_loss": zeros,
-                "training/Qlpha_value": zeros
+                "training/alpha_value": zeros,
+                "training/entropy": zeros
             }
             sample_key, update_key = jax.random.split(key)
             ts, info = nnx.cond(
-                rb.size * rb.n_envs > config.learning_starts,
+                rb.size > config.learning_starts,
                 lambda ts, rb: update_rainbowsac(ts, config, update_key, rb.sample(sample_key, config.batch_size * config.grad_step_per_env_step)),
                 lambda ts, rb: (ts, zero_info),
                 ts, rb
@@ -188,10 +158,37 @@ class TrainState:
         return train_step
 
 
-def update_critic(ts: TrainState, config: RainbowSACConfig, batch: Batch, key: jax.Array):
-    alpha_value = ts.alpha() 
-    actor_next_observations = ts.select_actor_observations(batch.next_observations)
-    next_actions, next_log_pi = ts.actor.get_action(
+@nnx.jit(static_argnames=('asymmetric_obs'))
+def _get_action(actor: FlashSACActor, obs: jax.Array, asymmetric_obs: bool):
+    obs = select_actor_observations(obs, asymmetric_obs, actor.obs_dim)
+    actions = actor.get_mean_action(obs)
+    return actions
+
+@nnx.jit(static_argnames=('asymmetric_obs'))
+def _get_exploration_action(actor: FlashSACActor, obs: jax.Array, asymmetric_obs: bool, pre_noise: jax.Array, exploration_noise: float, key: jax.Array):
+    obs = select_actor_observations(obs, asymmetric_obs, actor.obs_dim)
+    keys = jax.random.split(key, 2)
+    mean, log_std = actor.get_mean_std(obs)
+    refresh = (jax.random.uniform(keys[0], (mean.shape[0], 1)) < exploration_noise)     # （num_envs, 1)
+    new_noise = jax.random.normal(keys[1], shape=mean.shape)
+    noise = jnp.where(refresh, new_noise, pre_noise)
+    pre_action = mean + jnp.exp(log_std) * noise
+    actions = jnp.tanh(pre_action) * actor.action_scale + actor.action_bias
+    return noise, actions
+
+
+def update_critic(
+    actor: FlashSACActor,
+    critic: FlashSACDoubleCritic,
+    alpha: Alpha,
+    critic_opt: nnx.Optimizer,
+    target_critic: FlashSACDoubleCritic,
+    config: RainbowSACConfig, 
+    batch: Batch, 
+    key: jax.Array):
+    alpha_value = alpha() 
+    actor_next_observations = select_actor_observations(batch.next_observations, config.asymmetric_obs, actor.obs_dim)
+    next_actions, next_log_pi = actor.get_action(
             actor_next_observations, key=key, training=False)
     obs_all = jnp.concatenate([batch.observations, batch.next_observations], axis=0)
     actions_all = jnp.concatenate([batch.actions, next_actions], axis=0)
@@ -235,24 +232,51 @@ def update_critic(ts: TrainState, config: RainbowSACConfig, batch: Batch, key: j
     
 
     (_loss, info), grads = nnx.value_and_grad(
-        loss, has_aux=True)(ts.critic, ts.target_critic)
-    ts.critic_opt.update(grads)
+        loss, has_aux=True)(critic, target_critic)
+    critic_opt.update(grads)
     if config.normalize_parameters:
-        ts.critic.normalize_params()
-    return ts, info
+        critic.normalize_params()
+    return info
+
+
+def update_alpha(
+    alpha: Alpha,
+    alpha_opt: nnx.Optimizer,
+    actor: FlashSACActor,
+    config: RainbowSACConfig,
+    batch: Batch,
+    key:jax.Array
+) -> tuple[TrainState, dict[str, jax.Array]]:
+    """Update entropy temperature (alpha) and return the updated TrainState."""
+
+    actor_observations = select_actor_observations(batch.observations, config.asymmetric_obs, actor.obs_dim)
+    log_pi = actor.get_action(actor_observations, key=key, training=False)[1]
+    log_pi = jax.lax.stop_gradient(log_pi)
+
+    def alpha_loss_fn(alpha_model: Alpha):
+        alpha_loss = (-alpha_model() * (log_pi + config.target_entropy)).mean()
+        return alpha_loss, {"training/alpha_loss": alpha_loss, "training/alpha_value": alpha_model()}
+
+    (_loss, info), grads = nnx.value_and_grad(
+        alpha_loss_fn, has_aux=True)(alpha)
+    alpha_opt.update(grads)
+    return info
 
 
 
 def update_actor(
-    train_state: TrainState,
+    critic: FlashSACDoubleCritic,
+    actor: FlashSACActor,
+    actor_opt: nnx.Optimizer,
+    alpha: Alpha,
     config: RainbowSACConfig,
     batch: Batch,
     key: jax.Array,
 ) -> tuple[TrainState, dict[str, jax.Array]]:
     """Update actor parameters and return the updated TrainState."""
-    alpha_value = train_state.alpha()
+    alpha_value = alpha()
     alpha_value = jax.lax.stop_gradient(alpha_value)
-    actor_observations = train_state.select_actor_observations(batch.observations)
+    actor_observations = select_actor_observations(batch.observations, config.asymmetric_obs, actor.obs_dim)
 
     def actor_loss_fn(actor: FlashSACActor, critic: FlashSACDoubleCritic):
         actions, log_pi = actor.get_action(
@@ -264,57 +288,40 @@ def update_actor(
             q_dist = critic(batch.observations, actions, training=False)
             min_q = jnp.min(q_dist, axis=0).mean(-1, keepdims=True)           
         actor_loss = -jnp.mean(min_q - alpha_value * log_pi)
-        return actor_loss, {"training/actor_loss": actor_loss}
+        return actor_loss, {"training/actor_loss": actor_loss, "training/entropy": -log_pi.mean()}
 
     (_loss, info), grads = nnx.value_and_grad(
         actor_loss_fn, argnums=0, has_aux=True
-    )(train_state.actor, train_state.critic)
-    train_state.actor_opt.update(grads)
+    )(actor, critic)
+    actor_opt.update(grads)
     if config.normalize_parameters:
-        train_state.actor.normalize_params()
-    return train_state, info
-
-
-def update_alpha(
-    train_state: TrainState,
-    config: RainbowSACConfig,
-    batch: Batch,
-    key: jax.Array,
-) -> tuple[TrainState, dict[str, jax.Array]]:
-    """Update entropy temperature (alpha) and return the updated TrainState."""
-    actor_observations = train_state.select_actor_observations(batch.observations)
-    log_pi = train_state.actor.get_action(actor_observations, key=key, training=False)[1]
-    log_pi = jax.lax.stop_gradient(log_pi)
-
-    def alpha_loss_fn(alpha_model: Alpha):
-        alpha_loss = (-alpha_model() * (log_pi + config.target_entropy)).mean()
-        return alpha_loss, {"training/alpha_loss": alpha_loss, "training/alpha_value": alpha_model()}
-
-    (_loss, info), grads = nnx.value_and_grad(
-        alpha_loss_fn, has_aux=True)(train_state.alpha)
-    train_state.alpha_opt.update(grads)
-    return train_state, info
+        actor.normalize_params()
+    return info
 
 
 def update_policy(
-    train_state: TrainState,
+    critic: FlashSACDoubleCritic,
+    actor: FlashSACActor,
+    actor_opt: nnx.Optimizer,
+    alpha: Alpha,
+    alpha_opt: nnx.Optimizer,
     config: RainbowSACConfig,
     batch: Batch,
     key: jax.Array,
-) -> tuple[TrainState, dict[str, jax.Array]]:
-    """Update actor (and optionally alpha) once."""
+):
     actor_key, alpha_key = jax.random.split(key)
-    train_state, actor_info = update_actor(
-        train_state, config, batch, actor_key)
-    train_state, alpha_info = update_alpha(
-            train_state, config, batch, alpha_key)
-    return train_state, {**actor_info, **alpha_info}
+    actor_info = update_actor(
+        critic, actor, actor_opt, alpha, config, batch, actor_key)
+    alpha_info = update_alpha(
+            alpha, alpha_opt, actor, config, batch, alpha_key)
+    return {**actor_info, **alpha_info}
 
 
 
-
-def update_rainbowsac(train_state: TrainState, config: RainbowSACConfig, key: jax.Array, big_batch: Batch):
+def update_rainbowsac(ts: TrainState, config: RainbowSACConfig, key: jax.Array, big_batch: Batch):
     """(multiple SGD steps per env step)."""
+    if config.asymmetric_obs:
+        assert ts.actor.obs_dim != ts.critic.critic.obs_dim
 
     batches = jax.tree.map(
         lambda x: x.reshape(
@@ -324,36 +331,37 @@ def update_rainbowsac(train_state: TrainState, config: RainbowSACConfig, key: ja
 
     update_keys = jax.random.split(key, config.grad_step_per_env_step)
 
-    @nnx.scan(in_axes=(nnx.Carry, 0, 0), out_axes=(nnx.Carry, 0))
-    def update_sac_minibatch(train_state, sub_batch: Batch, key: jax.Array):
-        critic_key, policy_key = jax.random.split(key, 2)
-        train_state, critic_info = update_critic(
-            train_state, config, sub_batch, critic_key)
-        train_state = train_state.replace(
-            grad_updates=train_state.grad_updates + 1)
-        alpha_value = train_state.alpha() 
 
-        train_state, policy_info = nnx.cond(
-            train_state.grad_updates % config.policy_frequency == 0,
-            lambda ts: update_policy(ts, config, sub_batch, policy_key),
-            lambda ts: (ts, {
+    @nnx.scan(in_axes=(nnx.Carry, 0, 0), out_axes=(nnx.Carry, 0))
+    def update_minibatch(ts, sub_batch: Batch, key: jax.Array):
+        critic_key, policy_key = jax.random.split(key, 2)
+        critic_info = update_critic(ts.actor, ts.critic, ts.alpha, ts.critic_opt, ts.target_critic, config, sub_batch, critic_key)
+        ts = ts.replace(
+            grad_updates=ts.grad_updates + 1)
+        alpha_value = ts.alpha() 
+
+        policy_info = nnx.cond(
+            ts.grad_updates % config.policy_frequency == 0,
+            lambda ts: update_policy(ts.critic, ts.actor, ts.actor_opt, ts.alpha, ts.alpha_opt, config, sub_batch, policy_key),
+            lambda ts: {
                 "training/actor_loss": jnp.array(0.0),
                 "training/alpha_loss": jnp.array(0.0),
                 "training/alpha_value": alpha_value,
-            }),
-            train_state,
+                "training/entropy": jnp.array(0.0)
+            },
+            ts,
         )
         nnx.cond(
-            train_state.grad_updates % config.target_frequency == 0,
-            lambda ts: soft_update(ts.critic, ts.target_critic, config.tau),
-            lambda ts: None,
-            train_state,
+            ts.grad_updates % config.target_frequency == 0,
+            lambda critic, target_critic: soft_update(critic, target_critic, config.tau),
+            lambda critic, target_critic: None,
+            ts.critic, ts.target_critic, 
         )
 
         info = {**critic_info, **policy_info}
-        return train_state, info
+        return ts, info
 
-    updated_train_state, infos = update_sac_minibatch(
-        train_state, batches, update_keys)
+    updated_train_state, infos = update_minibatch(
+        ts, batches, update_keys)
     info = jax.tree.map(lambda x: x[-1], infos)
     return updated_train_state, info
