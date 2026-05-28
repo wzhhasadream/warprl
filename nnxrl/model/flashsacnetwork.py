@@ -86,8 +86,6 @@ class FlashSACActor(nnx.Module):
         log_std = self.policy.transform_log_std(raw_log_std)
         return mean, log_std
 
-    def normalize_params(self):
-        self.encoder.normalize_params()
 
 
 class FlashSACQNetwork(nnx.Module):
@@ -122,8 +120,6 @@ class FlashSACQNetwork(nnx.Module):
         return self.out(x)
 
 
-    def normalize_parms(self):
-        self.encoder.normalize_parms()
 
 class FlashSACDoubleCritic(nnx.Module):
     """Ensembled scalar critic for FlashSAC-style training."""
@@ -156,7 +152,3 @@ class FlashSACDoubleCritic(nnx.Module):
     ) -> jax.Array:
         return self.critic(observations, actions, training=training)
 
-    @nnx.vmap(in_axes=(0))
-    def normalize_params(self):
-        self.critic.encoder.normalize_params()
-        return 

@@ -9,11 +9,6 @@ def orthogonal(scale: jax.Array = jnp.sqrt(2)):
 
 
 
-def normalize_linear_kernel(kernel: jax.Array, eps: float = 1e-8) -> jax.Array:
-    """Normalize each output column of an NNX Linear kernel to unit L2 norm."""
-    norm = jnp.linalg.norm(kernel, keepdims=True)
-    return kernel / jnp.maximum(norm, eps)
-
 
 
 
@@ -214,9 +209,6 @@ class FlashSACBlock(nnx.Module):
         x = nnx.relu(x)
         return x + residual
 
-    def normalize_params(self):
-        self.w1.kernel.value = normalize_linear_kernel(self.w1.kernel.value)
-        self.w2.kernel.value = normalize_linear_kernel(self.w2.kernel.value)
 
 
 class FlashSACEncoder(nnx.Module):
@@ -237,10 +229,6 @@ class FlashSACEncoder(nnx.Module):
         x = self.rms(x)
         
         return x
-
-    def normalize_params(self):
-        for block in self.blocks:
-            block.normalize_params()
 
         
 

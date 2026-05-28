@@ -15,3 +15,4 @@ freeze_module_params
 from .quantile_loss import quantile_loss
 from .coupled_flow import CoupleFlowActor
 from .flashsacnetwork import FlashSACActor, FlashSACQNetwork, FlashSACDoubleCritic
+from .normailze_params import project_param

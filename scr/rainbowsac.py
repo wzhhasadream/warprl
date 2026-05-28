@@ -6,7 +6,8 @@ from nnxrl.model import (
     Alpha,
     FlashSACDoubleCritic,
     CoupleFlowActor,
-    FlashSACActor
+    FlashSACActor,
+    project_param
 )
 from nnxrl.env import make_venv_env
 from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_obs
@@ -113,8 +114,8 @@ def main():
         num_head=args.num_head
     )
     if args.normalize_parameters:
-        actor.normalize_params()
-        critic.normalize_params()
+        project_param(critic)
+        project_param(actor)
     alpha = Alpha() 
     actor_opt = nnx.Optimizer(actor, optax.adam(args.policy_lr))
     critic_opt = nnx.Optimizer(critic, optax.adam(args.q_lr))

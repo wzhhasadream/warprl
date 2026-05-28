@@ -9,7 +9,8 @@ Alpha,
 FlashSACActor,
 FlashSACDoubleCritic,
 soft_update,
-quantile_loss)
+quantile_loss,
+project_param)
 from ..utils import Batch, GPUReplayBuffer, select_actor_observations, load_states, save_states
 
 
@@ -234,7 +235,7 @@ def update_critic(
         loss, has_aux=True)(critic, target_critic)
     critic_opt.update(grads)
     if config.normalize_parameters:
-        critic.normalize_params()
+        project_param(critic)
     return info
 
 
@@ -294,7 +295,7 @@ def update_actor(
     )(actor, critic)
     actor_opt.update(grads)
     if config.normalize_parameters:
-        actor.normalize_params()
+        project_param(actor)
     return info
 
 
