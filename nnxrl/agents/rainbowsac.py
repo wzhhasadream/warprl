@@ -142,8 +142,7 @@ class TrainState:
                 "training/q_mean": zeros,
                 "training/actor_loss": zeros,
                 "training/alpha_loss": zeros,
-                "training/alpha_value": zeros,
-                "training/entropy": zeros
+                "training/alpha_value": zeros
             }
             sample_key, update_key = jax.random.split(key)
             ts, info = nnx.cond(
