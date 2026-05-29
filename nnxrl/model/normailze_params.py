@@ -36,28 +36,19 @@ def normalize_scale(scale: jax.Array, eps: float = 1e-8) -> jax.Array:
 
 
 def project_param(module: nnx.Module) -> None:
-    seen: set[int] = set()
-    for _, value in nnx.iter_graph(module):
-        obj_id = id(value)
-        if obj_id in seen:
-            continue
-        seen.add(obj_id)
+    for _, m in module.iter_modules():
+        if isinstance(m, nnx.Linear):
+            m.kernel.value = normalize_linear_kernel(m.kernel.value)
 
-        if isinstance(value, nnx.Linear):
-            value.kernel.value = normalize_linear_kernel(value.kernel.value)
+        elif isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
+            scale = getattr(m, "scale", None)
+            bias = getattr(m, "bias", None)
+            if scale is not None and bias is not None:
+                scale.value, bias.value = normalize_scale_bias(
+                    scale.value, bias.value
+                )
 
-        elif isinstance(value, (nnx.LayerNorm, nnx.BatchNorm)):
-            if hasattr(value, "scale") and hasattr(value, "bias"):
-                scale = getattr(value, "scale", None)
-                bias = getattr(value, "bias", None)
-                if scale is not None and bias is not None:
-                    scale_v, bias_v = normalize_scale_bias(
-                        scale.value, bias.value
-                    )
-                    scale.value = scale_v
-                    bias.value = bias_v
-
-        elif hasattr(nnx, "RMSNorm") and isinstance(value, nnx.RMSNorm):
-            scale = getattr(value, "scale", None)
+        elif hasattr(nnx, "RMSNorm") and isinstance(m, nnx.RMSNorm):
+            scale = getattr(m, "scale", None)
             if scale is not None:
                 scale.value = normalize_scale(scale.value)
