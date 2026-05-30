@@ -147,7 +147,7 @@ class TrainState:
             }
             sample_key, update_key = jax.random.split(key)
             ts, info = nnx.cond(
-                rb.size > config.learning_starts,
+                rb.size >= config.learning_starts,
                 lambda ts, rb: update_rainbowsac(ts, config, update_key, rb.sample(sample_key, config.batch_size * config.grad_step_per_env_step)),
                 lambda ts, rb: (ts, zero_info),
                 ts, rb
