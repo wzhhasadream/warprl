@@ -288,7 +288,7 @@ def update_actor(
             q_dist = critic(batch.observations, actions, training=False)
             min_q = jnp.min(q_dist, axis=0).mean(-1, keepdims=True)           
         actor_loss = -jnp.mean(min_q - alpha_value * log_pi)
-        return actor_loss, {"training/actor_loss": actor_loss, "training/entropy": -log_pi.mean()}
+        return actor_loss, {"training/actor_loss": actor_loss}
 
     (_loss, info), grads = nnx.value_and_grad(
         actor_loss_fn, argnums=0, has_aux=True
@@ -347,7 +347,6 @@ def update_rainbowsac(ts: TrainState, config: RainbowSACConfig, key: jax.Array, 
                 "training/actor_loss": jnp.array(0.0),
                 "training/alpha_loss": jnp.array(0.0),
                 "training/alpha_value": alpha_value,
-                "training/entropy": jnp.array(0.0)
             },
             ts,
         )

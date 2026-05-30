@@ -10,7 +10,7 @@ from nnxrl.model import (
     project_param
 )
 from nnxrl.env import make_venv_env
-from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_obs
+from nnxrl.utils import evaluate_policy, replace_truncated_next_obs, GPUReplayBuffer, Batch
 import time
 import numpy as np
 import jax
@@ -18,23 +18,23 @@ import optax
 import tyro
 import dataclasses
 
+
 @dataclasses.dataclass
 class Args:
-    env_id: str = "Ant-v4"
-    env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground'] = 'mujoco'
+    env_id: str = "BallInCup"
+    env_type: Literal['playground', 'issaclab', 'maniskill'] = 'playground'
     seed: int = 1
-    num_envs: int = 1
-    total_timesteps: int = int(1e6)
-    buffer_size: int = int(1e6)
+    num_envs: int = 1024
+    total_timesteps: int = 50_000_896
+    buffer_size: int = int(10e6)
     policy_frequency: int = 2
     target_frequency: int = 1
-    learning_starts: int = int(1e4)
+    learning_starts: int = int(1e5)
     gamma: float = 0.99
     tau: float = 0.01
-    batch_size: int = 512
+    batch_size: int = 2048
     policy_lr: float = 3e-4
-    q_lr: float = 1e-3
+    q_lr: float = 3e-4
     target_entropy: float = 0  # will be set automatically
     target_sigma: float = 0.15
     critic_hidden_dim: int = 256
@@ -48,16 +48,15 @@ class Args:
     asymmetric_obs: Literal[True, False] = False
 
     action_repeat: int = 1
-    grad_step_per_env_step: int = 1
+    grad_step_per_env_step: int = 2
 
-    eval_frequency: int = 1e5
+    eval_frequency: int = 4_999_168
     eval_episode: int = 50
 
-    decay_step: int = 80_000
+    decay_step: int = 40_000
     coupled_flow: Literal[True, False] = False
     num_ode: int = 1
     num_step: int = 1
-
 
 
 def main():
@@ -69,7 +68,8 @@ def main():
         args.eval_episode = 100
     np.random.seed(args.seed)
 
-    envs, eval_envs = make_venv_env(args.env_id, args.env_type, args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
+    envs, eval_envs = make_venv_env(
+        args.env_id, args.env_type, args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
 
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
@@ -84,12 +84,13 @@ def main():
         2.0 * np.pi * np.e * args.target_sigma ** 2
     )
 
-    wandb.init(project='rainbowsac_fast', config=vars(args), name=f'{args.env_id}')
+    wandb.init(project='rainbowsac_gpu',
+               config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
     if args.coupled_flow:
         actor = CoupleFlowActor(
-        actor_obs_dim, action_dim, rngs.fork(),
+            actor_obs_dim, action_dim, rngs.fork(),
             hidden_dim=args.actor_hidden_dim,
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
@@ -99,7 +100,7 @@ def main():
         )
     else:
         actor = FlashSACActor(
-        actor_obs_dim, action_dim, rngs.fork(),
+            actor_obs_dim, action_dim, rngs.fork(),
             hidden_dim=args.actor_hidden_dim,
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
@@ -116,20 +117,19 @@ def main():
     if args.normalize_parameters:
         project_param(critic)
         project_param(actor)
-    alpha = Alpha() 
+    alpha = Alpha()
     actor_opt = nnx.Optimizer(actor, optax.adam(args.policy_lr))
     critic_opt = nnx.Optimizer(critic, optax.adam(args.q_lr))
     alpha_opt = nnx.Optimizer(alpha, optax.adam(
-        args.policy_lr)) 
+        args.policy_lr))
 
-    rb = ReplayBuffer(
-        envs.single_observation_space,
-        envs.single_action_space,
+    rb = GPUReplayBuffer.create(
+        envs.single_observation_space.shape,
+        envs.single_action_space.shape,
         args.buffer_size,
         n_envs=args.num_envs,
         linear_decay_steps=args.decay_step
     )
-
 
     ts = TrainState.create(actor, critic, actor_opt,
                            critic_opt, alpha=alpha, alpha_opt=alpha_opt, pre_noise=jax.random.normal(jax.random.PRNGKey(args.seed), (args.num_envs, action_dim)))
@@ -140,12 +140,12 @@ def main():
             return ts.get_action(obs)
         wall_time = time.time() - start_time
         info = evaluate_policy(eval_envs, policy, args.eval_episode)
-        wandb.log({**info, "eval/wall_time":wall_time}, global_step)
+        wandb.log({**info, "eval/wall_time": wall_time}, global_step)
 
-    jit_update = ts.make_update_fn(args)
+    jit_train = ts.make_train_step(args)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed), 2)
 
-    for global_step in range(0, args.total_timesteps):
+    for global_step in range(0, args.total_timesteps, args.num_envs):
         if global_step % args.eval_frequency == 0:
             eval_and_log(ts, global_step)
         if global_step < args.learning_starts:
@@ -162,23 +162,11 @@ def main():
         next_obs, rewards, terminations, truncations, infos = envs.step(
             actions)
 
-        real_next_obs = replace_truncated_next_obs(next_obs, truncations, infos)
+        real_next_obs = replace_truncated_next_obs(
+            next_obs, truncations, infos)
 
-        rb.add(
-            obs,
-            actions,
-            rewards,
-            real_next_obs,
-            terminations,
-        )
-
-        if global_step >= args.learning_starts:
-            big_batch = rb.sample(
-                args.batch_size * args.grad_step_per_env_step)
-            ts, info = jit_update(
-                ts, big_batch, jax.random.fold_in(
-                    update_key, global_step)
-            )
+        transition = Batch(obs, actions, rewards, terminations, real_next_obs)
+        ts, rb, info = jit_train(ts, rb, transition, jax.random.fold_in(update_key, global_step))
         obs = next_obs
 
     envs.close()
