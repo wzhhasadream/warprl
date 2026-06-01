@@ -119,7 +119,7 @@ def main():
         project_param(actor)
     alpha = Alpha()
     actor_opt = nnx.Optimizer(actor, adam(args.policy_lr))
-    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, (args.total_timesteps * args.grad_step_per_env_step) / args.num_envs)))
+    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, int((args.total_timesteps * args.grad_step_per_env_step) / args.num_envs))))
     alpha_opt = nnx.Optimizer(alpha, adam(args.policy_lr))
 
     rb = GPUReplayBuffer.create(
