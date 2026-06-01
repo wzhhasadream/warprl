@@ -14,7 +14,7 @@ from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_ob
 import time
 import numpy as np
 import jax
-import optax
+from optax import adam, cosine_decay_schedule
 import tyro
 import dataclasses
 
@@ -61,6 +61,7 @@ class Args:
 
 
 def main():
+    assert args.num_envs == 1, "num_envs only supports 1 for cpu simulation"
     print("🚀 sac training")
     print("=" * 60)
 
@@ -117,10 +118,9 @@ def main():
         project_param(critic)
         project_param(actor)
     alpha = Alpha() 
-    actor_opt = nnx.Optimizer(actor, optax.adam(args.policy_lr))
-    critic_opt = nnx.Optimizer(critic, optax.adam(args.q_lr))
-    alpha_opt = nnx.Optimizer(alpha, optax.adam(
-        args.policy_lr)) 
+    actor_opt = nnx.Optimizer(actor, adam(args.policy_lr))
+    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, args.total_timesteps * args.grad_step_per_env_step)))
+    alpha_opt = nnx.Optimizer(alpha, adam(args.policy_lr)) 
 
     rb = ReplayBuffer(
         envs.single_observation_space,

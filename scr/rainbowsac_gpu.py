@@ -14,7 +14,7 @@ from nnxrl.utils import evaluate_policy, replace_truncated_next_obs, GPUReplayBu
 import time
 import numpy as np
 import jax
-import optax
+from optax import adam, cosine_decay_schedule
 import tyro
 import dataclasses
 
@@ -50,7 +50,7 @@ class Args:
     action_repeat: int = 1
     grad_step_per_env_step: int = 2
 
-    eval_frequency: int = 4_999_168
+    eval_frequency: int = 5_496_832
     eval_episode: int = 50
 
     decay_step: int = 40_000
@@ -118,10 +118,9 @@ def main():
         project_param(critic)
         project_param(actor)
     alpha = Alpha()
-    actor_opt = nnx.Optimizer(actor, optax.adam(args.policy_lr))
-    critic_opt = nnx.Optimizer(critic, optax.adam(args.q_lr))
-    alpha_opt = nnx.Optimizer(alpha, optax.adam(
-        args.policy_lr))
+    actor_opt = nnx.Optimizer(actor, adam(args.policy_lr))
+    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, (args.total_timesteps * args.grad_step_per_env_step) / args.num_envs)))
+    alpha_opt = nnx.Optimizer(alpha, adam(args.policy_lr))
 
     rb = GPUReplayBuffer.create(
         envs.single_observation_space.shape,
