@@ -34,7 +34,7 @@ class Args:
     tau: float = 0.01
     batch_size: int = 2048
     policy_lr: float = 3e-4
-    q_lr: float = 3e-4
+    q_lr: float = 1e-3
     target_entropy: float = 0  # will be set automatically
     target_sigma: float = 0.15
     critic_hidden_dim: int = 256

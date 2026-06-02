@@ -85,7 +85,7 @@ def main():
         2.0 * np.pi * np.e * args.target_sigma ** 2
     )
 
-    wandb.init(project='rainbowsac_fast', config=vars(args), name=f'{args.env_id}')
+    wandb.init(project='rainbowsac_lr_decay', config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
     if args.coupled_flow:
