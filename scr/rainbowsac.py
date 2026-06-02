@@ -53,7 +53,7 @@ class Args:
     eval_frequency: int = 1e5
     eval_episode: int = 50
 
-    decay_step: int = 100_000
+    decay_step: int = 80_000
     coupled_flow: Literal[True, False] = False
     num_ode: int = 1
     num_step: int = 1
