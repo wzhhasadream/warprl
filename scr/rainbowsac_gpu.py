@@ -14,7 +14,7 @@ from nnxrl.utils import evaluate_policy, replace_truncated_next_obs, GPUReplayBu
 import time
 import numpy as np
 import jax
-from optax import adam, cosine_decay_schedule
+from optax import adam, linear_schedule
 import tyro
 import dataclasses
 
@@ -31,19 +31,19 @@ class Args:
     target_frequency: int = 1
     learning_starts: int = int(1e5)
     gamma: float = 0.99
-    tau: float = 0.01
+    tau: float = 5e-3
     batch_size: int = 2048
     policy_lr: float = 3e-4
     q_lr: float = 1e-3
+    end_lr: float = 1e-4
     target_entropy: float = 0  # will be set automatically
-    target_sigma: float = 0.15
     critic_hidden_dim: int = 256
     critic_num_blocks: int = 2
     actor_hidden_dim: int = 128
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 101
-    exploration_noise: float = 0.5
+    exploration_noise: float = 1
     normalize_parameters: Literal[True, False] = False
     asymmetric_obs: Literal[True, False] = False
 
@@ -68,6 +68,8 @@ def main():
         args.eval_episode = 100
     np.random.seed(args.seed)
 
+    num_critic_updates = int(args.total_timesteps / args.num_envs * args.grad_step_per_env_step)
+
     envs, eval_envs = make_venv_env(
         args.env_id, args.env_type, args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
 
@@ -80,9 +82,7 @@ def main():
         asymmetric_obs = True
     args.asymmetric_obs = asymmetric_obs
     obs, _ = envs.reset(seed=args.seed)
-    args.target_entropy = 0.5 * action_dim * np.log(
-        2.0 * np.pi * np.e * args.target_sigma ** 2
-    )
+    args.target_entropy = - action_dim / 2
 
     wandb.init(project='rainbowsac_gpu',
                config=vars(args), name=f'{args.env_id}')
@@ -118,9 +118,9 @@ def main():
         project_param(critic)
         project_param(actor)
     alpha = Alpha()
-    actor_opt = nnx.Optimizer(actor, adam(args.policy_lr))
-    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, int((args.total_timesteps * args.grad_step_per_env_step) / args.num_envs), 0.1)))
-    alpha_opt = nnx.Optimizer(alpha, adam(args.policy_lr))
+    actor_opt = nnx.Optimizer(actor, adam(linear_schedule(args.policy_lr, args.end_lr, num_critic_updates)))
+    critic_opt = nnx.Optimizer(critic, adam(linear_schedule(args.q_lr, args.end_lr, num_critic_updates)))
+    alpha_opt = nnx.Optimizer(alpha, adam(linear_schedule(args.policy_lr, args.end_lr, num_critic_updates))) 
 
     rb = GPUReplayBuffer.create(
         envs.single_observation_space.shape,

@@ -9,9 +9,8 @@ Alpha,
 FlashSACActor,
 FlashSACDoubleCritic,
 soft_update,
-quantile_loss,
 project_param)
-from ..utils import Batch, GPUReplayBuffer, select_actor_observations, load_states, save_states
+from ..utils import Batch, GPUReplayBuffer, select_actor_observations, load_states, save_states, quantile_loss
 
 
 
