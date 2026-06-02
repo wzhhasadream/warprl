@@ -61,11 +61,11 @@ class Args:
 
 
 def main():
-    assert args.num_envs == 1, "num_envs only supports 1 for cpu simulation"
     print("🚀 sac training")
     print("=" * 60)
 
     args = tyro.cli(Args)
+    assert args.num_envs == 1, "num_envs only supports 1 for cpu simulation"
     if args.env_type == 'myosuite':
         args.eval_episode = 100
     np.random.seed(args.seed)
