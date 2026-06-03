@@ -9,7 +9,7 @@ from nnxrl.model import (
     FlashSACActor,
     project_param
 )
-from nnxrl.env import make_venv_env
+from nnxrl.env import create_envs
 from nnxrl.utils import evaluate_policy, replace_truncated_next_obs, GPUReplayBuffer, Batch
 import time
 import numpy as np
@@ -70,8 +70,8 @@ def main():
 
     num_critic_updates = int(args.total_timesteps / args.num_envs * args.grad_step_per_env_step)
 
-    envs, eval_envs = make_venv_env(
-        args.env_id, args.env_type, args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
+    envs, eval_envs = create_envs(
+        args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
 
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
