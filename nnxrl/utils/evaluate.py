@@ -12,15 +12,17 @@ def evaluate_policy(
     seed: int = 0,
     rms: RunningMeanStd | None = None
 ) -> dict:
+    close_envs = False
     if isinstance(envs, list):
         envs = gymnasium.vector.SyncVectorEnv(envs)
+        close_envs = True
     elif callable(envs):
         envs = gymnasium.vector.SyncVectorEnv([envs for _ in range(num_envs)])
+        close_envs = True
     elif isinstance(envs, VectorEnv):
         pass
     else:
         raise TypeError(f"Unsupported envs type: {type(envs)}")
-    envs = gymnasium.wrappers.vector.RecordEpisodeStatistics(envs)
     if rms is not None:
         import copy
         envs = gymnasium.wrappers.vector.NormalizeObservation(envs)
@@ -31,19 +33,23 @@ def evaluate_policy(
 
     episodic_returns = []
     episodic_success = []
+    running_returns = np.zeros(envs.num_envs, dtype=np.float64)
     while len(episodic_returns) < eval_episodes:
         actions = np.asarray(policy(obs))
 
-        next_obs, _, terminated, truncated, infos = envs.step(actions)
+        next_obs, rewards, terminated, truncated, infos = envs.step(actions)
+        running_returns += np.asarray(rewards, dtype=np.float64)
         dones = np.logical_or(terminated, truncated)
         if dones.any():
-            episodic_returns.extend(infos["episode"]["r"][dones].tolist())
+            episodic_returns.extend(running_returns[dones].tolist())
             if "success" in infos:
                 episodic_success.extend(infos["success"][dones].tolist())
+            running_returns[dones] = 0.0
 
         obs = next_obs
 
-    envs.close()
+    if close_envs:
+        envs.close()
     if len(episodic_success) > 0:
         success_rate = float(np.mean(episodic_success) * 100)
         return {"eval/episode_return": float(np.mean(episodic_returns)), "eval/episode_return_std": float(np.std(episodic_returns)), "eval/success_rate": success_rate}
@@ -114,4 +120,3 @@ def evaluate_playground_policy(
     mean_return = returns_buffer.sum() / jnp.maximum(count, 1)
     std_return = jnp.std(returns_buffer)
     return {"eval/episode_return": mean_return, "eval/episode_return_std": std_return}
-

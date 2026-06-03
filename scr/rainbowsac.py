@@ -20,7 +20,7 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
-    env_id: str = "Ant-v4"
+    env_id: str = "Humanoid-v4"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
                       'humanoid_bench', 'playground'] = 'mujoco'
     seed: int = 1
@@ -31,7 +31,7 @@ class Args:
     target_frequency: int = 1
     learning_starts: int = int(1e4)
     gamma: float = 0.99
-    tau: float = 5e-3
+    tau: float = 1e-2
     batch_size: int = 512
     policy_lr: float = 3e-4
     q_lr: float = 1e-3

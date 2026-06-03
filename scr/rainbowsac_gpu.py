@@ -31,7 +31,7 @@ class Args:
     target_frequency: int = 1
     learning_starts: int = int(1e5)
     gamma: float = 0.99
-    tau: float = 5e-3
+    tau: float = 1e-2
     batch_size: int = 2048
     policy_lr: float = 3e-4
     q_lr: float = 1e-3
