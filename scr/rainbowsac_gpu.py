@@ -14,7 +14,7 @@ from nnxrl.utils import evaluate_policy, replace_truncated_next_obs, GPUReplayBu
 import time
 import numpy as np
 import jax
-from optax import adam, linear_schedule
+from optax import adam, cosine_decay_schedule
 import tyro
 import dataclasses
 
@@ -35,7 +35,7 @@ class Args:
     batch_size: int = 2048
     policy_lr: float = 3e-4
     q_lr: float = 1e-3
-    end_lr: float = 1e-4
+    end_lr: float = 1.5e-4
     target_entropy: float = 0  # will be set automatically
     critic_hidden_dim: int = 256
     critic_num_blocks: int = 2
@@ -119,9 +119,9 @@ def main():
         project_param(critic)
         project_param(actor)
     alpha = Alpha()
-    actor_opt = nnx.Optimizer(actor, adam(linear_schedule(args.policy_lr, args.end_lr, num_critic_updates)))
-    critic_opt = nnx.Optimizer(critic, adam(linear_schedule(args.q_lr, args.end_lr, num_critic_updates)))
-    alpha_opt = nnx.Optimizer(alpha, adam(linear_schedule(args.policy_lr, args.end_lr, num_critic_updates))) 
+    actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr)))
+    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.q_lr / args.end_lr)))
+    alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr))) 
 
     rb = GPUReplayBuffer.create(
         envs.single_observation_space.shape,
