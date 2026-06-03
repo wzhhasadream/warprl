@@ -33,7 +33,7 @@ class RMS:
         )
 
     @classmethod
-    def create_from(
+    def load(
         cls,
         mean: jax.Array,
         var: jax.Array,
