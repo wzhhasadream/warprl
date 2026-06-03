@@ -50,8 +50,9 @@ class Args:
     action_repeat: int = 1
     grad_step_per_env_step: int = 1
 
-    eval_frequency: int = 1e5
-    eval_episode: int = 50
+    eval_frequency: int = 1e4
+    eval_episode: int = 10
+    log_frequency: int = 1000
 
     decay_step: int = 80_000
     coupled_flow: Literal[True, False] = False 
@@ -180,6 +181,8 @@ def main():
                 ts, big_batch, jax.random.fold_in(
                     update_key, global_step)
             )
+            if global_step % args.log_frequency == 0:
+                wandb.log(info, global_step)
         obs = next_obs
 
     envs.close()

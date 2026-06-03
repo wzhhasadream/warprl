@@ -51,7 +51,8 @@ class Args:
     grad_step_per_env_step: int = 2
 
     eval_frequency: int = 5_496_832
-    eval_episode: int = 50
+    eval_episode: int = 10
+    log_frequency: int = int(1e4)
 
     decay_step: int = 40_000
     coupled_flow: Literal[True, False] = False
@@ -166,6 +167,8 @@ def main():
 
         transition = Batch(obs, actions, rewards, terminations, real_next_obs)
         ts, rb, info = jit_train(ts, rb, transition, jax.random.fold_in(update_key, global_step))
+        if global_step % args.log_frequency < args.num_envs:
+            wandb.log(info, global_step)
         obs = next_obs
 
     envs.close()
