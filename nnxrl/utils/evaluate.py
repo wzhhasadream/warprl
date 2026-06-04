@@ -4,6 +4,28 @@ import numpy as np
 from gymnasium.wrappers.utils import RunningMeanStd
 from gymnasium.vector import VectorEnv
 
+def _success_from_infos(infos: dict, dones: np.ndarray) -> list[float]:
+    if "success" in infos:
+        return np.asarray(infos["success"])[dones].astype(np.float32).tolist()
+
+    final_info = infos.get("final_info")
+    if final_info is None:
+        return []
+
+    if isinstance(final_info, dict) and "success" in final_info:
+        valid = np.asarray(infos.get("_final_info", dones), dtype=bool)
+        mask = np.logical_and(dones, valid)
+        return np.asarray(final_info["success"])[mask].astype(np.float32).tolist()
+
+    if isinstance(final_info, np.ndarray):
+        successes = []
+        for done, item in zip(dones, final_info):
+            if done and isinstance(item, dict) and "success" in item:
+                successes.append(float(item["success"]))
+        return successes
+
+    return []
+
 def evaluate_policy(
     envs: Callable| list[Callable]| VectorEnv,
     policy: Callable[[np.ndarray], np.ndarray],
@@ -42,8 +64,7 @@ def evaluate_policy(
         dones = np.logical_or(terminated, truncated)
         if dones.any():
             episodic_returns.extend(running_returns[dones].tolist())
-            if "success" in infos:
-                episodic_success.extend(infos["success"][dones].tolist())
+            episodic_success.extend(_success_from_infos(infos, dones))
             running_returns[dones] = 0.0
 
         obs = next_obs
