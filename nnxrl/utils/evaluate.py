@@ -1,38 +1,53 @@
 from typing import Callable
-import gymnasium 
-import numpy as np
-from gymnasium.wrappers.utils import RunningMeanStd
-from gymnasium.vector import VectorEnv
 
-def _success_from_infos(infos: dict, dones: np.ndarray) -> list[float]:
+import gymnasium
+import numpy as np
+from gymnasium.vector import VectorEnv
+from gymnasium.wrappers.utils import RunningMeanStd
+
+
+def _as_float_array(values, *, size: int) -> np.ndarray:
+    arr = np.asarray(values, dtype=object)
+    if arr.shape == ():
+        arr = np.full((size,), arr.item(), dtype=object)
+    out = np.zeros((size,), dtype=np.float32)
+    for idx, value in enumerate(arr.reshape(-1)):
+        if value is None:
+            continue
+        value = float(value)
+        if np.isfinite(value):
+            out[idx] = value
+    return out
+
+
+def _extract_step_success(infos: dict, num_envs: int) -> np.ndarray:
     if "success" in infos:
-        return np.asarray(infos["success"])[dones].astype(np.float32).tolist()
+        valid = np.asarray(infos.get("_success", np.ones(num_envs, dtype=bool)), dtype=bool)
+        return _as_float_array(infos["success"], size=num_envs) * valid.astype(np.float32)
 
     final_info = infos.get("final_info")
-    if final_info is None:
-        return []
-
     if isinstance(final_info, dict) and "success" in final_info:
-        valid = np.asarray(infos.get("_final_info", dones), dtype=bool)
-        mask = np.logical_and(dones, valid)
-        return np.asarray(final_info["success"])[mask].astype(np.float32).tolist()
+        valid = np.asarray(infos.get("_final_info", np.ones(num_envs, dtype=bool)), dtype=bool)
+        return _as_float_array(final_info["success"], size=num_envs) * valid.astype(np.float32)
 
     if isinstance(final_info, np.ndarray):
-        successes = []
-        for done, item in zip(dones, final_info):
-            if done and isinstance(item, dict) and "success" in item:
-                successes.append(float(item["success"]))
-        return successes
+        out = np.zeros((num_envs,), dtype=np.float32)
+        valid = np.asarray(infos.get("_final_info", np.ones(num_envs, dtype=bool)), dtype=bool)
+        for idx, item in enumerate(final_info):
+            if valid[idx] and isinstance(item, dict) and "success" in item:
+                out[idx] = float(item["success"])
+        return out
 
-    return []
+    return np.zeros((num_envs,), dtype=np.float32)
+
 
 def evaluate_policy(
-    envs: Callable| list[Callable]| VectorEnv,
+    envs: Callable | list[Callable] | VectorEnv,
     policy: Callable[[np.ndarray], np.ndarray],
     eval_episodes: int = 100,
     num_envs: int = 10,
     seed: int = 0,
-    rms: RunningMeanStd | None = None
+    rms: RunningMeanStd | None = None,
 ) -> dict:
     close_envs = False
     if isinstance(envs, list):
@@ -41,12 +56,12 @@ def evaluate_policy(
     elif callable(envs):
         envs = gymnasium.vector.SyncVectorEnv([envs for _ in range(num_envs)])
         close_envs = True
-    elif isinstance(envs, VectorEnv):
-        pass
-    else:
+    elif not isinstance(envs, VectorEnv):
         raise TypeError(f"Unsupported envs type: {type(envs)}")
+
     if rms is not None:
         import copy
+
         envs = gymnasium.wrappers.vector.NormalizeObservation(envs)
         envs.obs_rms = copy.deepcopy(rms)
         envs.update_running_mean = False
@@ -56,26 +71,34 @@ def evaluate_policy(
     episodic_returns = []
     episodic_success = []
     running_returns = np.zeros(envs.num_envs, dtype=np.float64)
+    running_successes = np.zeros(envs.num_envs, dtype=np.float32)
+
     while len(episodic_returns) < eval_episodes:
         actions = np.asarray(policy(obs))
-
         next_obs, rewards, terminated, truncated, infos = envs.step(actions)
+
         running_returns += np.asarray(rewards, dtype=np.float64)
+        running_successes += _extract_step_success(infos, envs.num_envs)
+
         dones = np.logical_or(terminated, truncated)
         if dones.any():
             episodic_returns.extend(running_returns[dones].tolist())
-            episodic_success.extend(_success_from_infos(infos, dones))
+            episodic_success.extend((running_successes[dones] > 0).astype(np.float32).tolist())
             running_returns[dones] = 0.0
+            running_successes[dones] = 0.0
 
         obs = next_obs
 
     if close_envs:
         envs.close()
-    if len(episodic_success) > 0:
-        success_rate = float(np.mean(episodic_success) * 100)
-        return {"eval/episode_return": float(np.mean(episodic_returns)), "eval/episode_return_std": float(np.std(episodic_returns)), "eval/success_rate": success_rate}
 
-    return {"eval/episode_return": float(np.mean(episodic_returns)), "eval/episode_return_std": float(np.std(episodic_returns))}
+    result = {
+        "eval/episode_return": float(np.mean(episodic_returns)),
+        "eval/episode_return_std": float(np.std(episodic_returns)),
+    }
+    if episodic_success:
+        result["eval/success_rate"] = float(np.mean(episodic_success))
+    return result
 
 
 
