@@ -10,7 +10,14 @@ FlashSACActor,
 FlashSACDoubleCritic,
 soft_update,
 project_param)
-from ..utils import Batch, GPUReplayBuffer, select_actor_observations, load_states, save_states, quantile_loss
+from ..utils import (
+Batch, 
+GPUReplayBuffer, 
+select_actor_observations, 
+load_states, 
+save_states, 
+quantile_loss,
+RewardNormalizer)
 
 
 
@@ -36,6 +43,7 @@ class RainbowSACConfig(Protocol):
     target_entropy: float
     normalize_parameters: bool
     asymmetric_obs: bool
+    normalize_rewards: bool
 
 
 @struct.dataclass
@@ -50,6 +58,7 @@ class TrainState:
     pre_noise: jax.Array
     asymmetric_obs: bool = struct.field(pytree_node=False, default=False)      # Use actor-only observations when set.
     grad_updates: int = 0
+    reward_normalizer: RewardNormalizer | None = None
 
 
     @classmethod
@@ -60,7 +69,8 @@ class TrainState:
                critic_opt,
                alpha,
                alpha_opt,
-               pre_noise):
+               pre_noise,
+               reward_normalizer=None):
         target_critic = deepcopy(critic)
         asymmetric_obs = False
         if actor.obs_dim != critic.critic.obs_dim:
@@ -75,7 +85,8 @@ class TrainState:
             alpha_opt=alpha_opt,
             grad_updates=0,
             asymmetric_obs=asymmetric_obs,
-            pre_noise=pre_noise
+            pre_noise=pre_noise,
+            reward_normalizer=reward_normalizer
         )
 
     def save(self, path: str):
@@ -107,15 +118,24 @@ class TrainState:
     def get_action(self, obs):
         return _get_action(self.actor, obs, self.asymmetric_obs)
 
+    
+    def update_reward_normalizer(self, raw_rewards: jax.Array, done: jax.Array):
+        if self.reward_normalizer is None:
+            return self
+        return self.replace(
+            reward_normalizer=self.reward_normalizer.update(raw_rewards, done)
+        )
+
 
     def get_exploration_action(
         self,
         obs: jax.Array,
         key: jax.Array,
-        exploration_noise: float = 0.5
-    ):
+        exploration_noise: float = 0.7
+    ):  
         noise, actions = _get_exploration_action(
             self.actor, obs, self.asymmetric_obs, self.pre_noise, exploration_noise, key)
+        
         return self.replace(pre_noise=noise), actions
 
     def make_update_fn(self, config: RainbowSACConfig):
@@ -128,13 +148,16 @@ class TrainState:
 
     def make_train_step(self, config: RainbowSACConfig):
         @nnx.jit(donate_argnums=(0, 1))
-        def train_step(ts: TrainState, rb: GPUReplayBuffer, transition: Batch, key: jax.Array):
+        def train_step(ts: TrainState, rb: GPUReplayBuffer, transition: dict, key: jax.Array):
+            if ts.reward_normalizer is not None and config.normalize_rewards:
+                ts = ts.update_reward_normalizer(
+                    transition["rewards"], jnp.logical_or(transition["terminations"], transition["truncations"]))
             rb = rb.add(
-                transition.observations,
-                transition.actions,
-                transition.rewards,
-                transition.next_observations,
-                transition.dones,
+                transition["observations"],
+                transition["actions"],
+                transition["rewards"],
+                transition["next_observations"],
+                transition["terminations"],
             )
             zeros = jnp.array(0.0)
             zero_info = {
@@ -321,6 +344,10 @@ def update_rainbowsac(ts: TrainState, config: RainbowSACConfig, key: jax.Array, 
     """(multiple SGD steps per env step)."""
     if config.asymmetric_obs:
         assert ts.actor.obs_dim != ts.critic.critic.obs_dim
+    
+    if config.normalize_rewards and ts.reward_normalizer is not None:
+        normalized_rewards = ts.reward_normalizer.normalize(big_batch.rewards)
+        big_batch = big_batch._replace(rewards=normalized_rewards)
 
     batches = jax.tree.map(
         lambda x: x.reshape(

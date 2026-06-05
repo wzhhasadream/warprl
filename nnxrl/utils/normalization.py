@@ -21,7 +21,7 @@ class RMS:
     epsilon: float
 
     @classmethod
-    def create(cls, obs_shape: int | Sequence[int], epsilon: float = 1e-4):
+    def create(cls, obs_shape: int | Sequence[int], epsilon: float = 1e-8):
         """Create an RMSState for a single observation tensor."""
         if isinstance(obs_shape, int):
             obs_shape = (obs_shape,)
@@ -38,7 +38,7 @@ class RMS:
         mean: jax.Array,
         var: jax.Array,
         count: int | float | jax.Array,
-        epsilon: float = 1e-4,
+        epsilon: float = 1e-8,
     ) -> "RMS":
         mean = jnp.asarray(mean, dtype=jnp.float32)
         var = jnp.asarray(var, dtype=jnp.float32)
@@ -88,7 +88,84 @@ class RMS:
         if update:
             rms = self.update(batch)
 
-        norm_state = (batch - rms.mean) / jnp.sqrt(rms.var + rms.epsilon)
-        return norm_state, rms
+        normalized_state = (batch - rms.mean) / jnp.sqrt(rms.var + rms.epsilon)
+        return normalized_state, rms
 
 
+@struct.dataclass
+class RewardNormalizer:
+    """Reward normalization state based on discounted-return statistics."""
+
+    gamma: float
+    g_max: float
+    g: jax.Array
+    g_rms: RMS
+    g_abs_max: jax.Array
+    epsilon: float
+    use_max_bound: struct.field(pytree_node=False)
+
+    @classmethod
+    def create(
+        cls,
+        num_envs: int | None = None,
+        gamma: float = 0.99,
+        g_max: float = 5.0,
+        epsilon: float = 1e-8,
+        use_max_bound: bool = True,
+    ) -> "RewardNormalizer":
+        """Create reward normalizer state.
+
+        If num_envs is None, a scalar discounted return is tracked. Otherwise,
+        one discounted return is tracked for each parallel environment.
+        """
+        shape = () if num_envs is None else (num_envs,)
+        return cls(
+            gamma=gamma,
+            g_max=g_max,
+            g=jnp.zeros(shape, dtype=jnp.float32),
+            g_rms=RMS.create(shape, epsilon=epsilon),
+            g_abs_max=jnp.array(0.0, dtype=jnp.float32),
+            epsilon=epsilon,
+            use_max_bound=use_max_bound,
+        )
+
+    @jax.jit
+    def update(self, rewards: jax.Array, dones: jax.Array) -> "RewardNormalizer":
+        """Update discounted-return statistics from one environment step."""
+        rewards = jnp.asarray(rewards, dtype=jnp.float32).reshape(self.g.shape)
+        dones = jnp.asarray(dones, dtype=jnp.float32).reshape(self.g.shape)
+
+        g = self.gamma * (1.0 - dones) * self.g + rewards
+        g_rms = self.g_rms.update(g)
+        g_abs_max = jnp.maximum(self.g_abs_max, jnp.max(jnp.abs(g)))
+        return self.replace(g=g, g_rms=g_rms, g_abs_max=g_abs_max)
+
+    def denominator(self) -> jax.Array:
+        """Return the reward scaling denominator."""
+        var_denominator = jnp.sqrt(self.g_rms.var + self.epsilon)
+        max_denominator = self.g_abs_max / jnp.maximum(self.g_max, self.epsilon)
+        if self.use_max_bound:
+            return jnp.maximum(var_denominator, max_denominator)
+        else:
+            return var_denominator
+
+    @jax.jit
+    def normalize(self, rewards: jax.Array) -> jax.Array:
+        """Scale rewards using current discounted-return statistics."""
+        rewards = jnp.asarray(rewards, dtype=jnp.float32)
+        denominator = self.denominator()
+
+        while denominator.ndim < rewards.ndim:
+            denominator = jnp.expand_dims(denominator, axis=-1)
+
+        return rewards / denominator
+
+    @jax.jit
+    def update_and_normalize(
+        self,
+        rewards: jax.Array,
+        dones: jax.Array,
+    ) -> tuple[jax.Array, "RewardNormalizer"]:
+        """Update statistics from rewards and return normalized rewards."""
+        normalizer = self.update(rewards, dones)
+        return normalizer.normalize(rewards), normalizer

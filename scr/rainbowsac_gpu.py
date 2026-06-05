@@ -10,7 +10,7 @@ from nnxrl.model import (
     project_param
 )
 from nnxrl.env import create_envs
-from nnxrl.utils import evaluate_policy, replace_truncated_next_obs, GPUReplayBuffer, Batch
+from nnxrl.utils import evaluate_policy, replace_truncated_next_obs, GPUReplayBuffer, RewardNormalizer
 import time
 import numpy as np
 import jax
@@ -34,7 +34,7 @@ class Args:
     tau: float = 1e-2
     batch_size: int = 2048
     policy_lr: float = 3e-4
-    q_lr: float = 1e-3
+    q_lr: float = 3e-4
     end_lr: float = 1.5e-4
     target_entropy: float = 0  # will be set automatically
     critic_hidden_dim: int = 256
@@ -44,8 +44,9 @@ class Args:
     num_q: int = 2
     num_head: int = 101
     exploration_noise: float = 1
-    normalize_parameters: Literal[True, False] = False
+    normalize_parameters: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False
+    normalize_rewards: Literal[True, False] = True
 
     action_repeat: int = 1
     grad_step_per_env_step: int = 2
@@ -122,6 +123,7 @@ def main():
     actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr)))
     critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.q_lr / args.end_lr)))
     alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr))) 
+    reward_normailzer = RewardNormalizer.create(args.num_envs, args.gamma) if args.normalize_rewards else None
 
     rb = GPUReplayBuffer.create(
         envs.single_observation_space.shape,
@@ -132,7 +134,7 @@ def main():
     )
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, pre_noise=jax.random.normal(jax.random.PRNGKey(args.seed), (args.num_envs, action_dim)))
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, pre_noise=jax.random.normal(jax.random.PRNGKey(args.seed), (args.num_envs, action_dim)), reward_normailzer=reward_normailzer)
     start_time = time.time()
 
     def eval_and_log(ts, global_step):
@@ -165,7 +167,7 @@ def main():
         real_next_obs = replace_truncated_next_obs(
             next_obs, truncations, infos)
 
-        transition = Batch(obs, actions, rewards, terminations, real_next_obs)
+        transition = dict(rewards=rewards, terminations=terminations, truncations=truncations, actions=actions, observations=obs, next_observations=real_next_obs)
         ts, rb, info = jit_train(ts, rb, transition, jax.random.fold_in(update_key, global_step))
         if global_step % args.log_frequency < args.num_envs:
             wandb.log(info, global_step)

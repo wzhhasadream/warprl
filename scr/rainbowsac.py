@@ -10,7 +10,7 @@ from nnxrl.model import (
     project_param
 )
 from nnxrl.env import create_envs
-from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_obs
+from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_obs, RewardNormalizer
 import time
 import numpy as np
 import jax
@@ -20,7 +20,7 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
-    env_id: str = "Humanoid-v4"
+    env_id: str = "Hopper-v4"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
                       'humanoid_bench', 'playground'] = 'mujoco'
     seed: int = 1
@@ -43,8 +43,9 @@ class Args:
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 101
-    exploration_noise: float = 1
-    normalize_parameters: Literal[True, False] = False
+    exploration_noise: float = 0.7
+    normalize_parameters: Literal[True, False] = True
+    normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False
 
     action_repeat: int = 1
@@ -123,7 +124,11 @@ def main():
     actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr)))
     critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.q_lr / args.end_lr)))
     alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr))) 
-
+    reward_normalizer = (
+        RewardNormalizer.create(args.num_envs, args.gamma)
+        if args.normalize_rewards
+        else None
+    )
     rb = ReplayBuffer(
         envs.single_observation_space,
         envs.single_action_space,
@@ -134,7 +139,7 @@ def main():
 
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, pre_noise=jax.random.normal(jax.random.PRNGKey(args.seed), (args.num_envs, action_dim)))
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, pre_noise=jax.random.normal(jax.random.PRNGKey(args.seed), (args.num_envs, action_dim)), reward_normalizer=reward_normalizer)
     start_time = time.time()
 
     def eval_and_log(ts, global_step):
@@ -163,6 +168,11 @@ def main():
 
         next_obs, rewards, terminations, truncations, infos = envs.step(
             actions)
+
+        if args.normalize_rewards:
+            ts = ts.update_reward_normalizer(
+                rewards, np.logical_or(terminations, truncations)
+            )
 
         real_next_obs = replace_truncated_next_obs(next_obs, truncations, infos)
 
