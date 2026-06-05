@@ -4,9 +4,9 @@ import jax
 
 def normalize_linear_kernel(kernel: jax.Array, eps: float = 1e-8) -> jax.Array:
     if kernel.ndim == 2:   # 单个模型
-        axis = (0, 1)
+        axis = 0
     elif kernel.ndim == 3:  # 集成模型
-        axis = (1, 2)
+        axis = 1
     else:
         raise ValueError(f"Unsupported Linear kernel shape: {kernel.shape}")
 
