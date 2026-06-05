@@ -102,7 +102,7 @@ class RewardNormalizer:
     g_rms: RMS
     g_abs_max: jax.Array
     epsilon: float
-    use_max_bound: struct.field(pytree_node=False)
+    use_max_bound: struct.field(pytree_node=False, bool=True)
 
     @classmethod
     def create(

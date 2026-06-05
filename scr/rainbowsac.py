@@ -88,7 +88,7 @@ def main():
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = -action_dim / 2
 
-    wandb.init(project='rainbowsac_lr_decay', config=vars(args), name=f'{args.env_id}')
+    wandb.init(project='rainbowsac_all', config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
     if args.coupled_flow:
