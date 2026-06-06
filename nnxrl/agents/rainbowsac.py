@@ -17,7 +17,12 @@ select_actor_observations,
 load_states, 
 save_states, 
 quantile_loss,
-RewardNormalizer)
+RewardNormalizer,
+select_min_q_logits,
+categorical_q_values,
+make_bin_values,
+categorical_projection,
+categorical_ce_loss)
 
 
 
@@ -44,6 +49,7 @@ class RainbowSACConfig(Protocol):
     normalize_parameters: bool
     asymmetric_obs: bool
     normalize_rewards: bool
+    loss_type: str
 
 
 @struct.dataclass
@@ -215,7 +221,7 @@ def update_critic(
     obs_all = jnp.concatenate([batch.observations, batch.next_observations], axis=0)
     actions_all = jnp.concatenate([batch.actions, next_actions], axis=0)
 
-    def critic_loss_fn(critic: FlashSACDoubleCritic, target_critic: FlashSACDoubleCritic):
+    def mse_loss(critic: FlashSACDoubleCritic, target_critic: FlashSACDoubleCritic):
         q = critic(obs_all, actions_all, training=True)[:, : config.batch_size, :]
         next_q = target_critic(obs_all, actions_all, training=True)[
             :, config.batch_size:, :]
@@ -231,7 +237,7 @@ def update_critic(
         }
         return critic_loss, info
 
-    def dist_critic_loss(critic, target_critic):
+    def quantile_loss_fn(critic, target_critic):
             next_q_dist = target_critic(
                 obs_all, actions_all, training=True
             )[:, config.batch_size:, :]
@@ -247,10 +253,41 @@ def update_critic(
             "training/q_mean": q_dist.mean(),
             }
 
+
+    def ce_loss_fn(critic, target_critic):
+        next_q_logits = target_critic(
+                obs_all, actions_all, training=True
+            )[:, config.batch_size:, :]
+        q_logits = critic(obs_all, actions_all, training=True)[
+                :, : config.batch_size, :]
+        next_q_logits = select_min_q_logits(next_q_logits)
+        bins = make_bin_values(
+            config.num_head,
+            -5.0,
+            5.0,
+            dtype=q_logits.dtype,
+        )   # (num_head , )
+        target_bins = (
+            batch.rewards
+            + config.gamma
+            * (1.0 - batch.dones)
+            * (bins[None, :] - alpha_value * next_log_pi)
+        )
+        target_probs = categorical_projection(next_q_logits, target_bins)
+        ce_loss = categorical_ce_loss(q_logits, target_probs).mean()
+
+        return ce_loss, {
+            "training/q_loss": ce_loss,
+            "training/q_mean": categorical_q_values(q_logits).mean(),
+            }
+
     if  config.num_head > 1:
-        loss = dist_critic_loss
+        if config.loss_type == "quantile_loss":
+            loss = quantile_loss_fn
+        elif config.loss_type == "ce_loss":
+            loss = ce_loss_fn
     elif config.num_head == 1:
-        loss = critic_loss_fn
+        loss = mse_loss
     
 
     (_loss, info), grads = nnx.value_and_grad(
@@ -307,8 +344,13 @@ def update_actor(
             q = critic(batch.observations, actions, training=False)
             min_q = jnp.min(q, axis=0)
         elif config.num_head > 1:
-            q_dist = critic(batch.observations, actions, training=False)
-            min_q = jnp.min(q_dist, axis=0).mean(-1, keepdims=True)           
+            if config.loss_type == "quantile_loss":
+                q_dist = critic(batch.observations, actions, training=False)
+                min_q = jnp.min(q_dist, axis=0).mean(-1, keepdims=True)         
+            elif config.loss_type == "ce_loss":
+                q_logits =  critic(batch.observations, actions, training=False)
+                min_q_logits = select_min_q_logits(q_logits)
+                min_q = categorical_q_values(min_q_logits)
         actor_loss = -jnp.mean(min_q - alpha_value * log_pi)
         return actor_loss, {"training/actor_loss": actor_loss}
 

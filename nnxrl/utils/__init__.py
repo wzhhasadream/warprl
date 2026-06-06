@@ -5,7 +5,14 @@ from .normalization import RMS, RewardNormalizer
 import jax
 import numpy as np
 from typing import Any
-from .quantile_loss import quantile_loss
+from .distributional_loss import (
+    quantile_loss,
+    categorical_ce_loss,
+    categorical_q_values,
+    categorical_projection,
+    make_bin_values,
+    select_min_q_logits,
+)
 
 
 
