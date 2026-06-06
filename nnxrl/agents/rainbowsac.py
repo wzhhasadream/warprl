@@ -262,7 +262,7 @@ def update_critic(
                 :, : config.batch_size, :]
         next_q_logits = select_min_q_logits(next_q_logits)
         bins = make_bin_values(
-            config.num_head,
+            config.num_head
         )   # (num_head , )
         target_bins = (
             batch.rewards
