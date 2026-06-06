@@ -12,33 +12,36 @@ _current_run = None
 run_dir = None
 
 
-def _to_python_scalar(value: Any) -> Any:
+def _to_python_scalar(value: Any, round_floats: bool = True) -> Any:
     if isinstance(value, (bool, int, str)):
         return value
     if isinstance(value, float):
-        return round(value, 4)
+        return round(value, 4) if round_floats else value
     if isinstance(value, np.generic):
         value = value.item()
         if isinstance(value, float):
-            return round(value, 4)
+            return round(value, 4) if round_floats else value
         return value
     if hasattr(value, "shape"):
         arr = np.asarray(value)
         if arr.ndim == 0:
             scalar = arr.item()
             if isinstance(scalar, float):
-                return round(scalar, 4)
+                return round(scalar, 4) if round_floats else scalar
             return scalar
         return arr.tolist()
     return value
 
 
-def _normalize_config(value: Any) -> Any:
+def _normalize_config(value: Any, round_floats: bool = False) -> Any:
     if isinstance(value, dict):
-        return {str(key): _normalize_config(value[key]) for key in sorted(value)}
+        return {
+            str(key): _normalize_config(value[key], round_floats=round_floats)
+            for key in sorted(value)
+        }
     if isinstance(value, (list, tuple)):
-        return [_normalize_config(item) for item in value]
-    return _to_python_scalar(value)
+        return [_normalize_config(item, round_floats=round_floats) for item in value]
+    return _to_python_scalar(value, round_floats=round_floats)
 
 
 def _config_hash(config: Dict, exclude_keys: tuple[str, ...] = ("seed",)) -> str:
@@ -72,7 +75,8 @@ class Run:
         self.config_hash = _config_hash(cfg)
 
         os.makedirs(dir, exist_ok=True)
-        run_parent_dir = os.path.join(dir, project, self.name, f"cfg_{self.config_hash}")
+        run_parent_dir = os.path.join(
+            dir, project, self.name, f"cfg_{self.config_hash}")
 
         if self.seed is not None:
             run_parent_dir = os.path.join(run_parent_dir, f"seed_{self.seed}")
