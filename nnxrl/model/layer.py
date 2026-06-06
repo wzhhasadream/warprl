@@ -183,7 +183,7 @@ class SimBaEncoder(nnx.Module):
 class FlashSACEmbedder(nnx.Module):
     def __init__(self, input_dim: int, hidden_dim: int, rngs: nnx.Rngs):
         self.norm = nnx.BatchNorm(num_features=input_dim, rngs=rngs)
-        self.w = nnx.Linear(input_dim, hidden_dim, rngs=rngs, kernel_init=orthogonal(1), use_bias=False)
+        self.w = nnx.Linear(input_dim, hidden_dim, rngs=rngs, kernel_init=orthogonal(1))
 
     def __call__(self, x: jax.Array, training: bool):
         x = self.norm(x, use_running_average=not training)
@@ -194,8 +194,8 @@ class FlashSACEmbedder(nnx.Module):
 class FlashSACBlock(nnx.Module):
     def __init__(self, hidden_dim: int, rngs: nnx.Rngs, expansion: int = 4):
         self.w1 = nnx.Linear(hidden_dim, hidden_dim * expansion,
-                             rngs=rngs, kernel_init=orthogonal(1), use_bias=False)
-        self.w2 = nnx.Linear(hidden_dim * expansion, hidden_dim, rngs=rngs, kernel_init=orthogonal(1), use_bias=False)
+                             rngs=rngs, kernel_init=orthogonal(1))
+        self.w2 = nnx.Linear(hidden_dim * expansion, hidden_dim, rngs=rngs, kernel_init=orthogonal(1))
         self.norm1 = nnx.BatchNorm(
             num_features=hidden_dim * expansion, rngs=rngs)
         self.norm2 = nnx.BatchNorm(num_features=hidden_dim, rngs=rngs)
