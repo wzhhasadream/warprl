@@ -58,7 +58,7 @@ def quantile_loss(q_distributional, target_q_distributional, kappa: float = 1.0)
 
 
 @lru_cache(maxsize=None)
-def make_bin_values(num_bins: int, min_v: float, max_v: float, dtype=jnp.float32):
+def make_bin_values(num_bins: int, min_v: float = -5.0, max_v: float = 5.0, dtype=jnp.float32):
     """Return fixed categorical value atoms in [min_v, max_v]."""
     return jnp.linspace(min_v, max_v, num_bins, dtype=dtype)
 
