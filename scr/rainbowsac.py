@@ -47,6 +47,7 @@ class Args:
     normalize_parameters: Literal[True, False] = True
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False
+    loss_type: Literal["quantile_loss", "ce_loss"] = "quantile_loss"
 
     action_repeat: int = 1
     grad_step_per_env_step: int = 1
