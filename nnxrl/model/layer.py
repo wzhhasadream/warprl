@@ -220,7 +220,7 @@ class FlashSACEncoder(nnx.Module):
                 rngs: nnx.Rngs,
                 use_bias: bool = True):
         self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs, use_bias)
-        self.blocks = [FlashSACBlock(hidden_dim, rngs, use_bias)
+        self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias)
                        for _ in range(num_blocks)]
         self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs)
 

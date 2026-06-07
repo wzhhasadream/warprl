@@ -44,7 +44,7 @@ class Args:
     num_q: int = 2
     num_head: int = 101
     exploration_noise: float = 0.7
-    normalize_parameters: Literal[True, False] = False
+    normalize_parameters: Literal[True, False] = True
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
