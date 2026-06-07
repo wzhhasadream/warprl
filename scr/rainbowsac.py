@@ -44,10 +44,10 @@ class Args:
     num_q: int = 2
     num_head: int = 101
     exploration_noise: float = 0.7
-    normalize_parameters: Literal[True, False] = True
+    normalize_parameters: Literal[True, False] = False
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False
-    loss_type: Literal["quantile_loss", "ce_loss"] = "quantile_loss"
+    loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
 
     action_repeat: int = 1
     grad_step_per_env_step: int = 1
@@ -82,9 +82,12 @@ def main():
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
     actor_obs_dim = obs_dim
     asymmetric_obs = False
+    use_bias = True
     if getattr(envs, 'asymmetric_obs', False):
         actor_obs_dim = envs.actor_observation_size
         asymmetric_obs = True
+    if args.normalize_parameters:
+        use_bias = False
     args.asymmetric_obs = asymmetric_obs
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = -action_dim / 2
@@ -109,6 +112,7 @@ def main():
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
             action_low=envs.single_action_space.low,
+            use_bias=use_bias
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -116,7 +120,8 @@ def main():
         rngs.fork(split=args.num_q),
         hidden_dim=args.critic_hidden_dim,
         num_blocks=args.critic_num_blocks,
-        num_head=args.num_head
+        num_head=args.num_head,
+        use_bias=use_bias
     )
     if args.normalize_parameters:
         project_param(critic)

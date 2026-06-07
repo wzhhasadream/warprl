@@ -181,9 +181,9 @@ class SimBaEncoder(nnx.Module):
 
 # Adapted from FlashSac: https: // github.com/Holiday-Robot/FlashSAC/blob/main/flash_rl/agents/flashSAC/layer.py
 class FlashSACEmbedder(nnx.Module):
-    def __init__(self, input_dim: int, hidden_dim: int, rngs: nnx.Rngs):
+    def __init__(self, input_dim: int, hidden_dim: int, rngs: nnx.Rngs, use_bias: bool = True):
         self.norm = nnx.BatchNorm(num_features=input_dim, rngs=rngs)
-        self.w = nnx.Linear(input_dim, hidden_dim, rngs=rngs, kernel_init=orthogonal(1))
+        self.w = nnx.Linear(input_dim, hidden_dim, rngs=rngs, kernel_init=orthogonal(1), use_bias=use_bias)
 
     def __call__(self, x: jax.Array, training: bool):
         x = self.norm(x, use_running_average=not training)
@@ -192,10 +192,10 @@ class FlashSACEmbedder(nnx.Module):
 
 
 class FlashSACBlock(nnx.Module):
-    def __init__(self, hidden_dim: int, rngs: nnx.Rngs, expansion: int = 4):
+    def __init__(self, hidden_dim: int, rngs: nnx.Rngs, expansion: int = 4, use_bias: bool = True):
         self.w1 = nnx.Linear(hidden_dim, hidden_dim * expansion,
-                             rngs=rngs, kernel_init=orthogonal(1))
-        self.w2 = nnx.Linear(hidden_dim * expansion, hidden_dim, rngs=rngs, kernel_init=orthogonal(1))
+                             rngs=rngs, kernel_init=orthogonal(1), use_bias = use_bias)
+        self.w2 = nnx.Linear(hidden_dim * expansion, hidden_dim, rngs=rngs, kernel_init=orthogonal(1), use_bias = use_bias)
         self.norm1 = nnx.BatchNorm(
             num_features=hidden_dim * expansion, rngs=rngs)
         self.norm2 = nnx.BatchNorm(num_features=hidden_dim, rngs=rngs)
@@ -217,9 +217,11 @@ class FlashSACEncoder(nnx.Module):
                 input_dim: int,
                 num_blocks: int,
                 hidden_dim: int,
-                rngs: nnx.Rngs):
-        self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs)
-        self.blocks = [FlashSACBlock(hidden_dim, rngs) for _ in range(num_blocks)]
+                rngs: nnx.Rngs,
+                use_bias: bool = True):
+        self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs, use_bias)
+        self.blocks = [FlashSACBlock(hidden_dim, rngs, use_bias)
+                       for _ in range(num_blocks)]
         self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs)
 
     def __call__(self, x: jax.Array, training: bool):

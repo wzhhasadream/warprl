@@ -40,15 +40,15 @@ def project_param(module: nnx.Module) -> None:
         if isinstance(m, nnx.Linear):
             m.kernel.value = normalize_linear_kernel(m.kernel.value)
 
-        # elif isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
-        #     scale = getattr(m, "scale", None)
-        #     bias = getattr(m, "bias", None)
-        #     if scale is not None and bias is not None:
-        #         scale.value, bias.value = normalize_scale_bias(
-        #             scale.value, bias.value
-        #         )
+        elif isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
+            scale = getattr(m, "scale", None)
+            bias = getattr(m, "bias", None)
+            if scale is not None and bias is not None:
+                scale.value, bias.value = normalize_scale_bias(
+                    scale.value, bias.value
+                )
 
-        # elif hasattr(nnx, "RMSNorm") and isinstance(m, nnx.RMSNorm):
-        #     scale = getattr(m, "scale", None)
-        #     if scale is not None:
-        #         scale.value = normalize_scale(scale.value)
+        elif hasattr(nnx, "RMSNorm") and isinstance(m, nnx.RMSNorm):
+            scale = getattr(m, "scale", None)
+            if scale is not None:
+                scale.value = normalize_scale(scale.value)
