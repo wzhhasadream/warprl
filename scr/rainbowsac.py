@@ -82,12 +82,9 @@ def main():
     obs_dim = int(np.prod(np.asarray(envs.single_observation_space.shape)))
     actor_obs_dim = obs_dim
     asymmetric_obs = False
-    use_bias = True
     if getattr(envs, 'asymmetric_obs', False):
         actor_obs_dim = envs.actor_observation_size
         asymmetric_obs = True
-    if args.normalize_parameters:
-        use_bias = False
     args.asymmetric_obs = asymmetric_obs
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = -action_dim / 2
@@ -112,7 +109,7 @@ def main():
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
             action_low=envs.single_action_space.low,
-            use_bias=use_bias
+            use_bias=not args.normalize_parameters
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -121,7 +118,7 @@ def main():
         hidden_dim=args.critic_hidden_dim,
         num_blocks=args.critic_num_blocks,
         num_head=args.num_head,
-        use_bias=use_bias
+        use_bias=not args.normalize_parameters
     )
     if args.normalize_parameters:
         project_param(critic)
