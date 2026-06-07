@@ -171,7 +171,8 @@ class TrainState:
                 "training/q_mean": zeros,
                 "training/actor_loss": zeros,
                 "training/alpha_loss": zeros,
-                "training/alpha_value": zeros
+                "training/alpha_value": zeros,
+                "training/entropy": zeros
             }
             sample_key, update_key = jax.random.split(key)
             ts, info = nnx.cond(
@@ -298,19 +299,13 @@ def update_critic(
 def update_alpha(
     alpha: Alpha,
     alpha_opt: nnx.Optimizer,
-    actor: FlashSACActor,
-    config: RainbowSACConfig,
-    batch: Batch,
-    key:jax.Array
+    entropy: jax.Array,
+    config: RainbowSACConfig
 ) -> tuple[TrainState, dict[str, jax.Array]]:
     """Update entropy temperature (alpha) and return the updated TrainState."""
 
-    actor_observations = select_actor_observations(batch.observations, config.asymmetric_obs, actor.obs_dim)
-    log_pi = actor.get_action(actor_observations, key=key, training=False)[1]
-    log_pi = jax.lax.stop_gradient(log_pi)
-
     def alpha_loss_fn(alpha_model: Alpha):
-        alpha_loss = (-alpha_model() * (log_pi + config.target_entropy)).mean()
+        alpha_loss = (-alpha_model() * (- entropy + config.target_entropy)).mean()
         return alpha_loss, {"training/alpha_loss": alpha_loss, "training/alpha_value": alpha_model()}
 
     (_loss, info), grads = nnx.value_and_grad(
@@ -333,10 +328,14 @@ def update_actor(
     alpha_value = alpha()
     alpha_value = jax.lax.stop_gradient(alpha_value)
     actor_observations = select_actor_observations(batch.observations, config.asymmetric_obs, actor.obs_dim)
+    next_actor_observations = select_actor_observations(batch.next_observations, config.asymmetric_obs, actor.obs_dim)
+    actor_obs_all = jnp.concat([actor_observations, next_actor_observations], axis=0)
 
     def actor_loss_fn(actor: FlashSACActor, critic: FlashSACDoubleCritic):
-        actions, log_pi = actor.get_action(
-            actor_observations, key=key, training=True)
+        actions_all, log_pi_all = actor.get_action(
+            actor_obs_all, key=key, training=True)
+        actions = actions_all[: config.batch_size, ]
+        log_pi = log_pi_all[: config.batch_size, ]
         if config.num_head == 1:
             q = critic(batch.observations, actions, training=False)
             min_q = jnp.min(q, axis=0)
@@ -349,7 +348,8 @@ def update_actor(
                 min_q_logits = select_min_q_logits(q_logits)
                 min_q = categorical_q_values(min_q_logits)
         actor_loss = -jnp.mean(min_q - alpha_value * log_pi)
-        return actor_loss, {"training/actor_loss": actor_loss}
+        entropy = -log_pi.mean()
+        return actor_loss, {"training/actor_loss": actor_loss, "training/entropy": entropy}
 
     (_loss, info), grads = nnx.value_and_grad(
         actor_loss_fn, argnums=0, has_aux=True
@@ -370,11 +370,11 @@ def update_policy(
     batch: Batch,
     key: jax.Array,
 ):
-    actor_key, alpha_key = jax.random.split(key)
     actor_info = update_actor(
-        critic, actor, actor_opt, alpha, config, batch, actor_key)
+        critic, actor, actor_opt, alpha, config, batch, key)
+    entropy = actor_info["training/entropy"]
     alpha_info = update_alpha(
-            alpha, alpha_opt, actor, config, batch, alpha_key)
+            alpha, alpha_opt, entropy, config)
     return {**actor_info, **alpha_info}
 
 
@@ -412,6 +412,7 @@ def update_rainbowsac(ts: TrainState, config: RainbowSACConfig, key: jax.Array, 
                 "training/actor_loss": jnp.array(0.0),
                 "training/alpha_loss": jnp.array(0.0),
                 "training/alpha_value": alpha_value,
+                "training/entropy": jnp.array(0.0)
             },
             ts,
         )

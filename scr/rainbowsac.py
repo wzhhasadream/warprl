@@ -52,7 +52,7 @@ class Args:
     action_repeat: int = 1
     grad_step_per_env_step: int = 1
 
-    eval_frequency: int = 1e4
+    eval_frequency: int = 2e4
     eval_episode: int = 10
     log_frequency: int = 2000
 
@@ -87,7 +87,7 @@ def main():
         asymmetric_obs = True
     args.asymmetric_obs = asymmetric_obs
     obs, _ = envs.reset(seed=args.seed)
-    args.target_entropy = -action_dim / 2
+    args.target_entropy = 0.5 * action_dim * np.log(2 * np.pi * np.e * 0.15 ** 2) 
 
     wandb.init(project='rainbowsac_all', config=vars(args), name=f'{args.env_id}')
 
