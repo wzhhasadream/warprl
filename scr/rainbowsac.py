@@ -20,9 +20,9 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
-    env_id: str = "Hopper-v4"
+    env_id: str = "h1-run-v0"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground'] = 'mujoco'
+                      'humanoid_bench', 'playground'] = 'humanoid_bench'
     seed: int = 1
     num_envs: int = 1
     total_timesteps: int = int(1e6)
