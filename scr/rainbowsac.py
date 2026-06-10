@@ -53,7 +53,7 @@ class Args:
 
     eval_frequency: int = 2e4
     eval_episode: int = 10
-    log_frequency: int = 2000
+    log_frequency: int = 1999
 
     decay_step: int = 80_000
     coupled_flow: Literal[True, False] = True 
@@ -88,7 +88,7 @@ def main():
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = 0.5 * action_dim * np.log(2 * np.pi * np.e * 0.15 ** 2) 
 
-    wandb.init(project='rainbowsac_falsh', config=vars(args), name=f'{args.env_id}')
+    wandb.init(project='rainbowsac', config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
     if args.coupled_flow:
