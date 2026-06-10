@@ -89,7 +89,7 @@ def main():
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = 0.5 * action_dim * np.log(2 * np.pi * np.e * 0.15 ** 2) 
 
-    wandb.init(project='rainbowsac_all', config=vars(args), name=f'{args.env_id}')
+    wandb.init(project='rainbowsac_falsh', config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
     if args.coupled_flow:
@@ -108,8 +108,7 @@ def main():
             hidden_dim=args.actor_hidden_dim,
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
-            action_low=envs.single_action_space.low,
-            use_bias=not args.normalize_parameters
+            action_low=envs.single_action_space.low
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -117,8 +116,7 @@ def main():
         rngs.fork(split=args.num_q),
         hidden_dim=args.critic_hidden_dim,
         num_blocks=args.critic_num_blocks,
-        num_head=args.num_head,
-        use_bias=not args.normalize_parameters
+        num_head=args.num_head
     )
     if args.normalize_parameters:
         project_param(critic)
