@@ -5,7 +5,7 @@ import json
 import os
 from datetime import datetime
 from typing import Any, Dict, Optional, Union
-
+import time
 import numpy as np
 
 _current_run = None
@@ -69,6 +69,7 @@ class Run:
         self.flush_every = flush_every
         self.flush_interval = flush_interval
         self._finished = False
+        self.start_time = time.time()
 
         cfg = config or {}
         self.seed = cfg.get("seed")
@@ -110,7 +111,8 @@ class Run:
     ):
         if self._finished:
             raise RuntimeError("Run has already been finished.")
-
+        wall_time = time.time() - self.start_time
+        data["wall_time"] = wall_time
         if step is None:
             step = self.step_count
 

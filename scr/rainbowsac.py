@@ -57,9 +57,9 @@ class Args:
     log_frequency: int = 2000
 
     decay_step: int = 80_000
-    coupled_flow: Literal[True, False] = False 
-    num_ode: int = 1
-    num_step: int = 1
+    coupled_flow: Literal[True, False] = True 
+    num_ode: int = 3
+    num_step: int = 5
 
 
 
@@ -141,14 +141,12 @@ def main():
 
     ts = TrainState.create(actor, critic, actor_opt,
                            critic_opt, alpha=alpha, alpha_opt=alpha_opt, seed=args.seed, reward_normalizer=reward_normalizer)
-    start_time = time.time()
 
     def eval_and_log(ts, global_step):
         def policy(obs):
             return ts.get_action(obs)
-        wall_time = time.time() - start_time
         info = evaluate_policy(eval_envs, policy, args.eval_episode)
-        wandb.log({**info, "eval/wall_time":wall_time}, global_step)
+        wandb.log({**info}, global_step)
 
     jit_update = ts.make_update_fn(args)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed), 2)
@@ -162,8 +160,7 @@ def main():
         else:
             ts, actions = ts.get_exploration_action(
                 obs=obs,
-                key=jax.random.fold_in(action_key, global_step),
-                exploration_noise=args.exploration_noise
+                key=jax.random.fold_in(action_key, global_step)
             )
             actions = np.asarray(actions)
 

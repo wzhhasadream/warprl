@@ -2,6 +2,11 @@ from .replaybuffer import JAXReplayBuffer, Batch, ReplayBuffer, GPUReplayBuffer
 from .checkpoint import load_states, save_states
 from .evaluate import evaluate_policy, evaluate_playground_policy
 from .normalization import RMS, RewardNormalizer
+from .zeta_dist import (
+    build_truncated_zeta_cdf,
+    sample_integer_from_cdf,
+    sample_truncated_zeta,
+)
 import jax
 import numpy as np
 from typing import Any

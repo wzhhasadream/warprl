@@ -22,7 +22,8 @@ select_min_q_logits,
 categorical_q_values,
 make_bin_values,
 categorical_projection,
-categorical_ce_loss)
+categorical_ce_loss,
+sample_truncated_zeta)
 
 
 
@@ -62,6 +63,9 @@ class TrainState:
     target_critic: FlashSACDoubleCritic
     alpha_opt: nnx.Optimizer
     noise_key: jax.Array
+    repeat_key: jax.Array
+    repeat_count: jax.Array
+    repeat_n: jax.Array
     asymmetric_obs: bool = struct.field(pytree_node=False, default=False)      # Use actor-only observations when set.
     grad_updates: int = 0
     reward_normalizer: RewardNormalizer | None = None
@@ -78,6 +82,8 @@ class TrainState:
                reward_normalizer=None,
                seed=0):
         target_critic = deepcopy(critic)
+        repeat_key, noise_key = jax.random.split(jax.random.PRNGKey(seed))
+        repeat_n = sample_truncated_zeta(repeat_key)
         asymmetric_obs = False
         if actor.obs_dim != critic.critic.obs_dim:
             asymmetric_obs = True
@@ -91,8 +97,10 @@ class TrainState:
             alpha_opt=alpha_opt,
             grad_updates=0,
             asymmetric_obs=asymmetric_obs,
-            noise_key=jax.random.PRNGKey(seed),
-            reward_normalizer=reward_normalizer
+            noise_key=noise_key,
+            reward_normalizer=reward_normalizer,
+            repeat_n=repeat_n,
+            repeat_count=0
         )
 
     def save(self, path: str):
@@ -136,13 +144,13 @@ class TrainState:
     def get_exploration_action(
         self,
         obs: jax.Array,
-        key: jax.Array,
-        exploration_noise: float = 0.7
+        key: jax.Array
     ):  
-        noise_key, actions = _get_exploration_action(
-            self.actor, obs, self.asymmetric_obs, self.pre_noise, exploration_noise, key)
+        noise_key, actions, repeat_n, repeat_count = _get_exploration_action(
+            self.actor, obs, self.asymmetric_obs, self.repeat_n, self.repeat_count, self.noise_key, key)
         
-        return self.replace(noise_key=noise_key), actions
+        return self.replace(noise_key=noise_key, repeat_count = repeat_count, repeat_n = repeat_n), actions
+        
 
     def make_update_fn(self, config: RainbowSACConfig):
         @nnx.jit(donate_argnums=0)
@@ -198,20 +206,21 @@ def _get_exploration_action(
     actor: FlashSACActor,
     obs: jax.Array,
     asymmetric_obs: bool,
+    repeat_n: jax.Array,
+    repeat_count: jax.Array,
     pre_key: jax.Array,
-    exploration_noise: float,
     key: jax.Array,
 ):
+    zeta_key, action_key = jax.random.split(key, 2)
     obs = select_actor_observations(obs, asymmetric_obs, actor.obs_dim)
-    sample_key, refresh_key = jax.random.split(key, 2)
 
-    repeated_actions = actor.get_action(obs, key=pre_key, training=False)[0]
-    refreshed_actions = actor.get_action(obs, key=sample_key, training=False)[0]
+    refresh = jnp.logical_or(repeat_count == 0, repeat_count >= repeat_n)
+    true_action_key = jnp.where(refresh, action_key, pre_key)            # The key to create actions
+    actions = actor.get_action(obs, key=true_action_key, training=False)[0]
 
-    refresh = jax.random.uniform(refresh_key) < exploration_noise
-    new_key = jnp.where(refresh, sample_key, pre_key)
-    actions = jnp.where(refresh, refreshed_actions, repeated_actions)
-    return new_key, actions
+    new_repeat_n = jnp.where(refresh, sample_truncated_zeta(zeta_key), repeat_n)
+    new_repeat_count = jnp.where(refresh, 1, repeat_count + 1)
+    return true_action_key, actions, new_repeat_n, new_repeat_count
 
 
 def update_critic(
