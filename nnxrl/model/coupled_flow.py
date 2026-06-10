@@ -44,7 +44,8 @@ def make_perm_invperm(dim: int, key: jax.Array) -> tuple[jax.Array, jax.Array]:
 
 class FlowResidualBlock(nnx.Module):
     def __init__(self, hidden_dim: int, rngs: nnx.Rngs, expansion: int = 4):
-        self.norm = nnx.RMSNorm(hidden_dim, rngs=rngs.fork())
+        self.norm1 = nnx.RMSNorm(hidden_dim * expansion, rngs=rngs.fork())
+        self.norm2 = nnx.RMSNorm(hidden_dim, rngs=rngs.fork())
         self.w1 = nnx.Linear(
             hidden_dim,
             hidden_dim * expansion,
@@ -62,10 +63,11 @@ class FlowResidualBlock(nnx.Module):
 
     def __call__(self, x: jax.Array) -> jax.Array:
         residual = x
-        x = self.norm(x)
         x = self.w1(x)
+        x = self.norm1(x)
         x = nnx.relu(x)
         x = self.w2(x)
+        x = self.norm2(x)
         x = nnx.relu(x)
         return residual + x
 

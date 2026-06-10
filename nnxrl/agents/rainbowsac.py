@@ -61,7 +61,7 @@ class TrainState:
     critic_opt: nnx.Optimizer
     target_critic: FlashSACDoubleCritic
     alpha_opt: nnx.Optimizer
-    pre_noise: jax.Array
+    noise_key: jax.Array
     asymmetric_obs: bool = struct.field(pytree_node=False, default=False)      # Use actor-only observations when set.
     grad_updates: int = 0
     reward_normalizer: RewardNormalizer | None = None
@@ -75,8 +75,8 @@ class TrainState:
                critic_opt,
                alpha,
                alpha_opt,
-               pre_noise,
-               reward_normalizer=None):
+               reward_normalizer=None,
+               seed=0):
         target_critic = deepcopy(critic)
         asymmetric_obs = False
         if actor.obs_dim != critic.critic.obs_dim:
@@ -91,7 +91,7 @@ class TrainState:
             alpha_opt=alpha_opt,
             grad_updates=0,
             asymmetric_obs=asymmetric_obs,
-            pre_noise=pre_noise,
+            noise_key=jax.random.PRNGKey(seed),
             reward_normalizer=reward_normalizer
         )
 
@@ -139,10 +139,10 @@ class TrainState:
         key: jax.Array,
         exploration_noise: float = 0.7
     ):  
-        noise, actions = _get_exploration_action(
+        noise_key, actions = _get_exploration_action(
             self.actor, obs, self.asymmetric_obs, self.pre_noise, exploration_noise, key)
         
-        return self.replace(pre_noise=noise), actions
+        return self.replace(noise_key=noise_key), actions
 
     def make_update_fn(self, config: RainbowSACConfig):
         @nnx.jit(donate_argnums=0)
@@ -193,17 +193,25 @@ def _get_action(actor: FlashSACActor, obs: jax.Array, asymmetric_obs: bool):
     actions = actor.get_mean_action(obs)
     return actions
 
-@nnx.jit(static_argnames=('asymmetric_obs'))
-def _get_exploration_action(actor: FlashSACActor, obs: jax.Array, asymmetric_obs: bool, pre_noise: jax.Array, exploration_noise: float, key: jax.Array):
+@nnx.jit(static_argnames=("asymmetric_obs",))
+def _get_exploration_action(
+    actor: FlashSACActor,
+    obs: jax.Array,
+    asymmetric_obs: bool,
+    pre_key: jax.Array,
+    exploration_noise: float,
+    key: jax.Array,
+):
     obs = select_actor_observations(obs, asymmetric_obs, actor.obs_dim)
-    keys = jax.random.split(key, 2)
-    mean, log_std = actor.get_mean_std(obs)
-    refresh = (jax.random.uniform(keys[0], (mean.shape[0], 1)) < exploration_noise)     # （num_envs, 1)
-    new_noise = jax.random.normal(keys[1], shape=mean.shape)
-    noise = jnp.where(refresh, new_noise, pre_noise)
-    pre_action = mean + jnp.exp(log_std) * noise
-    actions = jnp.tanh(pre_action) * actor.action_scale + actor.action_bias
-    return noise, actions
+    sample_key, refresh_key = jax.random.split(key, 2)
+
+    repeated_actions = actor.get_action(obs, key=pre_key, training=False)[0]
+    refreshed_actions = actor.get_action(obs, key=sample_key, training=False)[0]
+
+    refresh = jax.random.uniform(refresh_key) < exploration_noise
+    new_key = jnp.where(refresh, sample_key, pre_key)
+    actions = jnp.where(refresh, refreshed_actions, repeated_actions)
+    return new_key, actions
 
 
 def update_critic(
