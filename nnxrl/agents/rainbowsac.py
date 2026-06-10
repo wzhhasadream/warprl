@@ -63,7 +63,6 @@ class TrainState:
     target_critic: FlashSACDoubleCritic
     alpha_opt: nnx.Optimizer
     noise_key: jax.Array
-    repeat_key: jax.Array
     repeat_count: jax.Array
     repeat_n: jax.Array
     asymmetric_obs: bool = struct.field(pytree_node=False, default=False)      # Use actor-only observations when set.
