@@ -56,9 +56,9 @@ class Args:
     log_frequency: int = 1999
 
     decay_step: int = 80_000
-    coupled_flow: Literal[True, False] = True 
-    num_ode: int = 3
-    num_step: int = 5
+    coupled_flow: Literal[True, False] = False 
+    num_ode: int = 1
+    num_step: int = 1
 
 
 
