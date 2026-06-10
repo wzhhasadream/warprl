@@ -135,7 +135,7 @@ def main():
     )
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, pre_noise=jax.random.normal(jax.random.PRNGKey(args.seed), (args.num_envs, action_dim)), reward_normailzer=reward_normailzer)
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, seed=args.seed, reward_normailzer=reward_normailzer)
     start_time = time.time()
 
     def eval_and_log(ts, global_step):
