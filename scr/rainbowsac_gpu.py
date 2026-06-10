@@ -47,7 +47,7 @@ class Args:
     normalize_parameters: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False
     normalize_rewards: Literal[True, False] = True
-    loss_type: Literal["quantile_loss", "ce_loss"] = "quantile_loss"  # used when num_head > 1
+    loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"  # used when num_head > 1
 
     action_repeat: int = 1
     grad_step_per_env_step: int = 2
@@ -85,7 +85,7 @@ def main():
         asymmetric_obs = True
     args.asymmetric_obs = asymmetric_obs
     obs, _ = envs.reset(seed=args.seed)
-    args.target_entropy = - action_dim / 2
+    args.target_entropy = 0.5 * action_dim * np.log(2 * np.pi * np.e * 0.15 ** 2) 
 
     wandb.init(project='rainbowsac_gpu',
                config=vars(args), name=f'{args.env_id}')
