@@ -342,7 +342,7 @@ def update_actor(
 ) -> tuple[TrainState, dict[str, jax.Array]]:
     """Update actor parameters and return the updated TrainState."""
     alpha_value = alpha()
-    keys = jax.random.split(key, 2)
+    action_key, entropy_key = jax.random.split(key, 2)
     alpha_value = jax.lax.stop_gradient(alpha_value)
     actor_observations = select_actor_observations(batch.observations, config.asymmetric_obs, actor.obs_dim)
     next_actor_observations = select_actor_observations(batch.next_observations, config.asymmetric_obs, actor.obs_dim)
@@ -350,7 +350,7 @@ def update_actor(
 
     def actor_loss_fn(actor: FlashSACActor, critic: FlashSACDoubleCritic):
         actions_all, log_pi_all = actor.get_action(
-            actor_obs_all, key=keys[1], training=True)
+            actor_obs_all, key=action_key, training=True)
         actions = actions_all[: config.batch_size, ]
         log_pi = log_pi_all[: config.batch_size, ]
         if config.num_head == 1:
@@ -374,7 +374,7 @@ def update_actor(
     if config.normalize_parameters:
         project_param(actor)
     _, log_pi = actor.get_action(
-            actor_obs_all, key=keys[2], training=False)
+            actor_obs_all, key=entropy_key, training=False)
     entropy = -log_pi.mean()
     info["training/entropy"] = entropy
     return info

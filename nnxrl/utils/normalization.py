@@ -123,7 +123,7 @@ class RewardNormalizer:
             gamma=gamma,
             g_max=g_max,
             g=jnp.zeros(shape, dtype=jnp.float32),
-            g_rms=RMS.create(shape, epsilon=epsilon),
+            g_rms=RMS.create((), epsilon=epsilon),
             g_abs_max=jnp.array(0.0, dtype=jnp.float32),
             epsilon=epsilon,
             use_max_bound=use_max_bound,
