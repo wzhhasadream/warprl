@@ -13,6 +13,7 @@ PROFILE_DEFAULTS = {
         grad_step_per_env_step=1,
         eval_frequency=50_000,
         log_frequency=2_000,
+        gamma=0.99,
         decay_step=80_000
     ),
     "gpu_sim": dict(
