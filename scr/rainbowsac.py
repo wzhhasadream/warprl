@@ -21,9 +21,9 @@ import dataclasses
 class Args:
     profile: Literal["auto", "cpu_sim", "gpu_sim"] = "auto"
 
-    env_id: str = "h1-run-v0"
+    env_id: str = "FishSwim"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground'] = 'humanoid_bench'
+                      'humanoid_bench', 'playground'] = 'playground'
 
     seed: int = 1
 
@@ -42,6 +42,7 @@ class Args:
 
     policy_frequency: int = 2
     target_frequency: int = 1
+    eval_episode: int = 10
     tau: float = 1e-2
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
