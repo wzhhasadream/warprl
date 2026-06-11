@@ -10,8 +10,7 @@ from nnxrl.model import (
     project_param
 )
 from nnxrl.env import create_envs
-from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_obs, RewardNormalizer
-import time
+from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_obs, RewardNormalizer, resolve_profile
 import numpy as np
 import jax
 from optax import adam, cosine_decay_schedule
@@ -20,19 +19,30 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
+    profile: Literal["auto", "cpu_sim", "gpu_sim"] = "auto"
+
     env_id: str = "h1-run-v0"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
                       'humanoid_bench', 'playground'] = 'humanoid_bench'
+
     seed: int = 1
-    num_envs: int = 1
-    total_timesteps: int = int(1e6)
-    buffer_size: int = int(1e6)
+
+    ##############    depends on env_type ###################
+    num_envs: int | None = None
+    total_timesteps: int | None = None
+    buffer_size: int | None = None
+    learning_starts: int | None = None        
+    batch_size: int | None = None
+    grad_step_per_env_step: int | None = None
+    eval_frequency: int | None = None
+    log_frequency: int | None = None
+    gamma: float | None = None
+    decay_step: int | None = None
+    #######################################################
+
     policy_frequency: int = 2
     target_frequency: int = 1
-    learning_starts: int = int(1e4)
-    gamma: float = 0.99
     tau: float = 1e-2
-    batch_size: int = 512
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
     end_lr: float = 1.5e-4
@@ -45,17 +55,10 @@ class Args:
     num_head: int = 101
     normalize_parameters: Literal[True, False] = False
     normalize_rewards: Literal[True, False] = True
-    asymmetric_obs: Literal[True, False] = False
+    asymmetric_obs: Literal[True, False] = False   # will be set automatically
+    normalize_parameters: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
-
     action_repeat: int = 1
-    grad_step_per_env_step: int = 1
-
-    eval_frequency: int = 2e4
-    eval_episode: int = 10
-    log_frequency: int = 1999
-
-    decay_step: int = 80_000
     coupled_flow: Literal[True, False] = False 
     num_ode: int = 1
     num_step: int = 1
@@ -67,9 +70,7 @@ def main():
     print("=" * 60)
 
     args = tyro.cli(Args)
-    assert args.num_envs == 1, "num_envs only supports 1 for cpu simulation"
-    if args.env_type == 'myosuite':
-        args.eval_episode = 100
+    args = resolve_profile(args)
     np.random.seed(args.seed)
 
     num_critic_updates = int(args.total_timesteps / args.num_envs * args.grad_step_per_env_step)
@@ -150,8 +151,8 @@ def main():
     jit_update = ts.make_update_fn(args)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed), 2)
 
-    for global_step in range(0, args.total_timesteps):
-        if global_step % args.eval_frequency == 0:
+    for global_step in range(0, args.total_timesteps, args.num_envs):
+        if global_step % args.eval_frequency <= args.num_envs:
             eval_and_log(ts, global_step)
         if global_step < args.learning_starts:
             actions = np.array([envs.single_action_space.sample()
@@ -188,7 +189,7 @@ def main():
                 ts, big_batch, jax.random.fold_in(
                     update_key, global_step)
             )
-            if global_step % args.log_frequency == 0:
+            if global_step % args.log_frequency <= args.num_envs:
                 wandb.log(info, global_step)
         obs = next_obs
 
