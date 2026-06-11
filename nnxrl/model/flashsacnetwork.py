@@ -2,11 +2,12 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from .layer import SimBaEncoder, orthogonal, FlashSACEncoder
+from .layer import orthogonal, FlashSACEncoder
 from .policy import (
     SquashedTanhGaussianPolicy,
     action_scale_bias,
-    flattened_dim
+    flattened_dim,
+    TanhDeterministicPolicy
 )
 
 
@@ -87,6 +88,59 @@ class FlashSACActor(nnx.Module):
         log_std = self.policy.transform_log_std(raw_log_std)
         return mean, log_std
 
+
+
+
+class FlashSACTanhDetActor(nnx.Module):
+    def __init__(
+        self,
+        obs_dim: int | tuple[int, ...],
+        action_dim: int,
+        rngs: nnx.Rngs,
+        hidden_dim: int = 256,
+        num_blocks: int = 2,
+        action_low: jax.Array = -1,
+        action_high: jax.Array = 1,
+        use_bias: bool = True
+    ):
+        self.obs_dim = flattened_dim(obs_dim)
+        self.action_dim = action_dim
+        self.action_low = jnp.asarray(action_low)
+        self.action_high = jnp.asarray(action_high)
+        self.action_scale, self.action_bias = action_scale_bias(
+            self.action_low, self.action_high
+        )
+
+        self.encoder = FlashSACEncoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias)
+        self.head = nnx.Linear(
+            hidden_dim,
+            action_dim,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+        )
+        self.policy = TanhDeterministicPolicy(
+            action_low=self.action_low,
+            action_high=self.action_high
+        )
+
+
+    def __call__(
+        self,
+        observations: jax.Array,
+        training: bool = True,
+    ) -> tuple[jax.Array, jax.Array]:
+        x = self.encoder(observations, training=training)
+        raw_actions = self.head(x)
+        return raw_actions
+
+    def get_action(
+        self,
+        observations: jax.Array,
+        training: bool = True,
+    ) -> tuple[jax.Array, jax.Array]:
+        raw_actions = self(observations, training=training)
+        actions = self.policy.action(raw_actions)
+        return actions
 
 
 class FlashSACQNetwork(nnx.Module):

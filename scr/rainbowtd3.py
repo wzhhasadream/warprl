@@ -1,12 +1,11 @@
 import nnxrl.utils.logger as wandb
 from flax import nnx
 from typing import Literal
-from nnxrl.agents.rainbowsac import TrainState
+from nnxrl.agents.rainbowtd3 import TrainState
 from nnxrl.model import (
     Alpha,
     FlashSACDoubleCritic,
-    CoupleFlowActor,
-    FlashSACActor,
+    FlashSACTanhDetActor,
     project_param
 )
 from nnxrl.env import create_envs
@@ -16,6 +15,7 @@ import jax
 from optax import adam, cosine_decay_schedule
 import tyro
 import dataclasses
+
 
 @dataclasses.dataclass
 class Args:
@@ -31,7 +31,7 @@ class Args:
     num_envs: int | None = None
     total_timesteps: int | None = None
     buffer_size: int | None = None
-    learning_starts: int | None = None        
+    learning_starts: int | None = None
     batch_size: int | None = None
     grad_step_per_env_step: int | None = None
     eval_frequency: int | None = None
@@ -41,13 +41,14 @@ class Args:
     #######################################################
 
     policy_frequency: int = 2
-    target_frequency: int = 1
+    exploration_noise: float = 0.1
+    policy_noise: float = 0.5
+    noise_clip: float = 0.2
     eval_episode: int = 10
     tau: float = 1e-2
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
     end_lr: float = 1.5e-4
-    target_entropy: float = 0  # will be set automatically
     critic_hidden_dim: int = 256
     critic_num_blocks: int = 2
     actor_hidden_dim: int = 128
@@ -60,11 +61,6 @@ class Args:
     normalize_parameters: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     action_repeat: int = 1
-    coupled_flow: Literal[True, False] = False 
-    num_ode: int = 1
-    num_step: int = 1
-
-
 
 def main():
     print("🚀 sac training")
@@ -74,7 +70,8 @@ def main():
     args = resolve_profile(args)
     np.random.seed(args.seed)
 
-    num_critic_updates = int(args.total_timesteps / args.num_envs * args.grad_step_per_env_step)
+    num_critic_updates = int(args.total_timesteps /
+                             args.num_envs * args.grad_step_per_env_step)
 
     envs, eval_envs = create_envs(
         args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
@@ -88,24 +85,13 @@ def main():
         asymmetric_obs = True
     args.asymmetric_obs = asymmetric_obs
     obs, _ = envs.reset(seed=args.seed)
-    args.target_entropy = 0.5 * action_dim * np.log(2 * np.pi * np.e * 0.15 ** 2) 
 
-    wandb.init(project='rainbowsac', config=vars(args), name=f'{args.env_id}')
+    wandb.init(project='rainbowtd3', config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
-    if args.coupled_flow:
-        actor = CoupleFlowActor(
-        actor_obs_dim, action_dim, rngs.fork(),
-            hidden_dim=args.actor_hidden_dim,
-            num_blocks=args.actor_num_blocks,
-            action_high=envs.single_action_space.high,
-            action_low=envs.single_action_space.low,
-            num_ode=args.num_ode,
-            num_step=args.num_step
-        )
-    else:
-        actor = FlashSACActor(
-        actor_obs_dim, action_dim, rngs.fork(),
+
+    actor = FlashSACTanhDetActor(
+            actor_obs_dim, action_dim, rngs.fork(),
             hidden_dim=args.actor_hidden_dim,
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
@@ -122,10 +108,10 @@ def main():
     if args.normalize_parameters:
         project_param(critic)
         project_param(actor)
-    alpha = Alpha() 
-    actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr)))
-    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.q_lr / args.end_lr)))
-    alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr))) 
+    actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(
+        args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr)))
+    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(
+        args.q_lr, num_critic_updates, args.q_lr / args.end_lr)))
     reward_normalizer = (
         RewardNormalizer.create(args.num_envs, args.gamma)
         if args.normalize_rewards
@@ -139,9 +125,8 @@ def main():
         linear_decay_steps=args.decay_step
     )
 
-
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, seed=args.seed, reward_normalizer=reward_normalizer)
+                           critic_opt, reward_normalizer=reward_normalizer)
 
     def eval_and_log(ts, global_step):
         def policy(obs):
@@ -161,7 +146,8 @@ def main():
         else:
             ts, actions = ts.get_exploration_action(
                 obs=obs,
-                key=jax.random.fold_in(action_key, global_step)
+                key=jax.random.fold_in(action_key, global_step),
+                exploration_noise=args.exploration_noise
             )
             actions = np.asarray(actions)
 
@@ -173,7 +159,8 @@ def main():
                 rewards, np.logical_or(terminations, truncations)
             )
 
-        real_next_obs = replace_truncated_next_obs(next_obs, truncations, infos)
+        real_next_obs = replace_truncated_next_obs(
+            next_obs, truncations, infos)
 
         rb.add(
             obs,
