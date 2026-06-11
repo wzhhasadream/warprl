@@ -21,9 +21,9 @@ import dataclasses
 class Args:
     profile: Literal["auto", "cpu_sim", "gpu_sim"] = "auto"
 
-    env_id: str = "FishSwim"
+    env_id: str = "Hopper-v4"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground'] = 'playground'
+                      'humanoid_bench', 'playground'] = 'mujoco'
 
     seed: int = 1
 
@@ -109,7 +109,8 @@ def main():
             hidden_dim=args.actor_hidden_dim,
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
-            action_low=envs.single_action_space.low
+            action_low=envs.single_action_space.low,
+            policy_type='beta'
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -122,7 +123,7 @@ def main():
     if args.normalize_parameters:
         project_param(critic)
         project_param(actor)
-    alpha = Alpha() 
+    alpha = Alpha(1e-4) 
     actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr)))
     critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.q_lr / args.end_lr)))
     alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr))) 
@@ -153,7 +154,7 @@ def main():
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed), 2)
 
     for global_step in range(0, args.total_timesteps, args.num_envs):
-        if global_step % args.eval_frequency <= args.num_envs:
+        if global_step % args.eval_frequency < args.num_envs:
             eval_and_log(ts, global_step)
         if global_step < args.learning_starts:
             actions = np.array([envs.single_action_space.sample()
@@ -190,7 +191,7 @@ def main():
                 ts, big_batch, jax.random.fold_in(
                     update_key, global_step)
             )
-            if global_step % args.log_frequency <= args.num_envs:
+            if global_step % args.log_frequency < args.num_envs:
                 wandb.log(info, global_step)
         obs = next_obs
 
