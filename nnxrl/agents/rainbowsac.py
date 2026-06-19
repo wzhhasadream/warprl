@@ -62,7 +62,7 @@ class TrainState:
     critic_opt: nnx.Optimizer
     target_critic: FlashSACDoubleCritic
     alpha_opt: nnx.Optimizer
-    noise_key: jax.Array
+    cached_key: jax.Array
     repeat_count: jax.Array
     repeat_n: jax.Array
     asymmetric_obs: bool = struct.field(pytree_node=False, default=False)      # Use actor-only observations when set.
@@ -78,11 +78,10 @@ class TrainState:
                critic_opt,
                alpha,
                alpha_opt,
-               reward_normalizer=None,
-               seed=0):
+               reward_normalizer=None):
         target_critic = deepcopy(critic)
-        repeat_key, noise_key = jax.random.split(jax.random.PRNGKey(seed))
-        repeat_n = sample_truncated_zeta(repeat_key)
+        cached_key = jax.random.PRNGKey(0)
+        repeat_n = 1
         asymmetric_obs = False
         if actor.obs_dim != critic.critic.obs_dim:
             asymmetric_obs = True
@@ -96,7 +95,7 @@ class TrainState:
             alpha_opt=alpha_opt,
             grad_updates=0,
             asymmetric_obs=asymmetric_obs,
-            noise_key=noise_key,
+            cached_key=cached_key,
             reward_normalizer=reward_normalizer,
             repeat_n=repeat_n,
             repeat_count=0
@@ -145,10 +144,10 @@ class TrainState:
         obs: jax.Array,
         key: jax.Array
     ):  
-        noise_key, actions, repeat_n, repeat_count = _get_exploration_action(
-            self.actor, obs, self.asymmetric_obs, self.repeat_n, self.repeat_count, self.noise_key, key)
+        true_action_key, actions, repeat_n, repeat_count = _get_exploration_action(
+            self.actor, obs, self.asymmetric_obs, self.repeat_n, self.repeat_count, self.cached_key, key)
         
-        return self.replace(noise_key=noise_key, repeat_count = repeat_count, repeat_n = repeat_n), actions
+        return self.replace(cached_key=true_action_key, repeat_count = repeat_count, repeat_n = repeat_n), actions
         
 
     def make_update_fn(self, config: RainbowSACConfig):
@@ -207,14 +206,14 @@ def _get_exploration_action(
     asymmetric_obs: bool,
     repeat_n: jax.Array,
     repeat_count: jax.Array,
-    pre_key: jax.Array,
+    cached_key: jax.Array,
     key: jax.Array,
 ):
     zeta_key, action_key = jax.random.split(key, 2)
     obs = select_actor_observations(obs, asymmetric_obs, actor.obs_dim)
 
     refresh = jnp.logical_or(repeat_count == 0, repeat_count >= repeat_n)
-    true_action_key = jnp.where(refresh, action_key, pre_key)            # The key to create actions
+    true_action_key = jnp.where(refresh, action_key, cached_key)            # The key to create actions
     actions = actor.get_action(obs, key=true_action_key, training=False)[0]
 
     new_repeat_n = jnp.where(refresh, sample_truncated_zeta(zeta_key), repeat_n)

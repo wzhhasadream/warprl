@@ -141,7 +141,7 @@ def main():
 
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, seed=args.seed, reward_normalizer=reward_normalizer)
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, reward_normalizer=reward_normalizer)
 
     def eval_and_log(ts, global_step):
         def policy(obs):
