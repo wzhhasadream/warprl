@@ -21,9 +21,9 @@ import dataclasses
 class Args:
     profile: Literal["auto", "cpu_sim", "gpu_sim"] = "auto"
 
-    env_id: str = "FishSwim"
+    env_id: str = "humanoid-run"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground'] = 'playground'
+                      'humanoid_bench', 'playground'] = 'dmc'
 
     seed: int = 1
 
@@ -57,7 +57,7 @@ class Args:
     normalize_parameters: Literal[True, False] = False
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False   # will be set automatically
-    normalize_parameters: Literal[True, False] = False
+    use_bias: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     action_repeat: int = 1
     coupled_flow: Literal[True, False] = False 
@@ -109,7 +109,8 @@ def main():
             hidden_dim=args.actor_hidden_dim,
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
-            action_low=envs.single_action_space.low
+            action_low=envs.single_action_space.low,
+            use_bias=args.use_bias
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -117,26 +118,29 @@ def main():
         rngs.fork(split=args.num_q),
         hidden_dim=args.critic_hidden_dim,
         num_blocks=args.critic_num_blocks,
-        num_head=args.num_head
+        num_head=args.num_head,
+        use_bias=args.use_bias
     )
     if args.normalize_parameters:
         project_param(critic)
         project_param(actor)
     alpha = Alpha() 
-    actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr)))
-    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.q_lr / args.end_lr)))
-    alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr))) 
+    actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.end_lr / args.policy_lr)))
+    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.end_lr / args.q_lr)))
+    alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.end_lr / args.q_lr))) 
     reward_normalizer = (
         RewardNormalizer.create(args.num_envs, args.gamma)
         if args.normalize_rewards
         else None
     )
+    use_approximate_sampling = True if args.env_type != "playground" else False
     rb = ReplayBuffer(
         envs.single_observation_space,
         envs.single_action_space,
         args.buffer_size,
         n_envs=args.num_envs,
-        linear_decay_steps=args.decay_step
+        linear_decay_steps=args.decay_step,
+        use_approximate_sampling=use_approximate_sampling
     )
 
 
