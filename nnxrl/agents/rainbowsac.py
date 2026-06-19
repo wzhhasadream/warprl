@@ -361,8 +361,7 @@ def update_actor(
                 min_q = jnp.min(q_dist, axis=0).mean(-1, keepdims=True)         
             elif config.loss_type == "ce_loss":
                 q_logits =  critic(batch.observations, actions, training=False)
-                min_q_logits = select_min_q_logits(q_logits)
-                min_q = categorical_q_values(min_q_logits)
+                min_q = categorical_q_values(q_logits).min(0)
         actor_loss = -jnp.mean(min_q - alpha_value * log_pi)
         return actor_loss, {"training/actor_loss": actor_loss}
 

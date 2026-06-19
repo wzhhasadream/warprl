@@ -90,7 +90,7 @@ def main():
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = 0.5 * action_dim * np.log(2 * np.pi * np.e * 0.15 ** 2) 
 
-    wandb.init(project='rainbowsac', config=vars(args), name=f'{args.env_id}')
+    wandb.init(project='final', config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
     if args.coupled_flow:
@@ -127,7 +127,7 @@ def main():
     alpha = Alpha() 
     actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.end_lr / args.policy_lr)))
     critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.end_lr / args.q_lr)))
-    alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.end_lr / args.q_lr))) 
+    alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.end_lr / args.policy_lr))) 
     reward_normalizer = (
         RewardNormalizer.create(args.num_envs, args.gamma)
         if args.normalize_rewards
