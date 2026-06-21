@@ -363,7 +363,7 @@ def update_actor(
                 q_logits =  critic(batch.observations, actions, training=False)
                 min_q = categorical_q_values(q_logits).min(0)
         actor_loss = -jnp.mean(min_q - alpha_value * log_pi)
-        return actor_loss, {"training/actor_loss": actor_loss}
+        return actor_loss, {"training/actor_loss": actor_loss, "training/entropy": -log_pi.mean()}
 
     (_loss, info), grads = nnx.value_and_grad(
         actor_loss_fn, argnums=0, has_aux=True
@@ -371,10 +371,6 @@ def update_actor(
     actor_opt.update(grads)
     if config.normalize_parameters:
         project_param(actor)
-    _, log_pi = actor.get_action(
-            actor_obs_all, key=entropy_key, training=False)
-    entropy = -log_pi.mean()
-    info["training/entropy"] = entropy
     return info
 
 

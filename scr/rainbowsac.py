@@ -160,8 +160,7 @@ def main():
         if global_step % args.eval_frequency < args.num_envs:
             eval_and_log(ts, global_step)
         if global_step < args.learning_starts:
-            actions = np.array([envs.single_action_space.sample()
-                               for _ in range(args.num_envs)])
+            actions = envs.action_space.sample()
         else:
             ts, actions = ts.get_exploration_action(
                 obs=obs,
