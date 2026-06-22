@@ -201,7 +201,8 @@ class FlashSACDoubleCritic(nnx.Module):
             hidden_dim=hidden_dim,
             num_blocks=num_blocks,
             num_head=num_head,
-            use_bias=use_bias
+            use_bias=use_bias,
+            block_type=block_type
         )
 
     @nnx.vmap(in_axes=(0, None, None, None), out_axes=0)

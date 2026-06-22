@@ -217,8 +217,8 @@ class SwiGLUBlock(nnx.Module):
 
         self.norm1 = nnx.RMSNorm(ffn_dim, rngs=rngs)
         self.norm2 = nnx.RMSNorm(ffn_dim, rngs=rngs)
-        self.w_in = nnx.Linear(hidden_dim, 2 * ffn_dim, rngs=rngs, use_bias=use_bias)
-        self.w_out = nnx.Linear(ffn_dim, hidden_dim, rngs=rngs, use_bias=use_bias)
+        self.w_in = nnx.Linear(hidden_dim, 2 * ffn_dim, rngs=rngs, use_bias=use_bias, kernel_init=orthogonal(1))
+        self.w_out = nnx.Linear(ffn_dim, hidden_dim, rngs=rngs, use_bias=use_bias, kernel_init=orthogonal(1))
 
     def __call__(self, x, **kwargs):
         residual = x
