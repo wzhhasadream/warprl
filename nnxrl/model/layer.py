@@ -211,19 +211,43 @@ class FlashSACBlock(nnx.Module):
         return x + residual
 
 
-class SwiGLUBlock(nnx.Module):
-    def __init__(self, hidden_dim, rngs, expansion=4, use_bias=True):
+class ReiGLUBlock(nnx.Module):
+    def __init__(
+        self,
+        hidden_dim: int,
+        rngs: nnx.Rngs,
+        expansion: int = 4,
+        use_bias: bool = True,
+    ):
         ffn_dim = int(hidden_dim * expansion * 2 / 3)
 
-        self.norm = nnx.BatchNorm(hidden_dim, rngs=rngs)
-        self.w_in = nnx.Linear(hidden_dim, 2 * ffn_dim, rngs=rngs, use_bias=use_bias, kernel_init=orthogonal(1))
-        self.w_out = nnx.Linear(ffn_dim, hidden_dim, rngs=rngs, use_bias=use_bias, kernel_init=orthogonal(1))
+        self.w_in = nnx.Linear(
+            hidden_dim,
+            2 * ffn_dim,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+            use_bias=use_bias,
+        )
+        self.w_out = nnx.Linear(
+            ffn_dim,
+            hidden_dim,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+            use_bias=use_bias,
+        )
+        self.norm_in = nnx.BatchNorm(num_features=2 * ffn_dim, rngs=rngs)
+        self.norm_out = nnx.BatchNorm(num_features=hidden_dim, rngs=rngs)
 
-    def __call__(self, x, training):
+    def __call__(self, x: jax.Array, training: bool) -> jax.Array:
         residual = x
-        x = self.norm(x, use_running_average=not training)
-        gate, up = jnp.split(self.w_in(x), 2, axis=-1)
-        return residual + self.w_out(nnx.silu(gate) * up)
+        x = self.w_in(x)
+        x = self.norm_in(x, use_running_average=not training)
+        gate, up = jnp.split(x, 2, axis=-1)
+        x = nnx.relu(gate) * up
+        x = self.w_out(x)
+        x = self.norm_out(x, use_running_average=not training)
+        x = nnx.relu(x)
+        return x + residual
 
 
 class Encoder(nnx.Module):
@@ -239,7 +263,7 @@ class Encoder(nnx.Module):
             self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias)
                        for _ in range(num_blocks)]
         elif block_type == 'glu':
-            self.blocks = [SwiGLUBlock(hidden_dim, rngs, 4, use_bias)
+            self.blocks = [ReiGLUBlock(hidden_dim, rngs, 4, use_bias)
                        for _ in range(num_blocks)]
         else:
             raise ValueError(f"got block type {block_type}")
