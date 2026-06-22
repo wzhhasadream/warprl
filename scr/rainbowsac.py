@@ -10,7 +10,7 @@ from nnxrl.model import (
     project_param
 )
 from nnxrl.env import create_envs
-from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_truncated_next_obs, RewardNormalizer, resolve_profile
+from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_done_next_obs, RewardNormalizer, resolve_profile
 import numpy as np
 import jax
 from optax import adam, cosine_decay_schedule
@@ -175,12 +175,13 @@ def main():
         next_obs, rewards, terminations, truncations, infos = envs.step(
             actions)
 
+        dones = np.logical_or(terminations, truncations)
         if args.normalize_rewards:
             ts = ts.update_reward_normalizer(
-                rewards, np.logical_or(terminations, truncations)
+                rewards, dones
             )
 
-        real_next_obs = replace_truncated_next_obs(next_obs, truncations, infos)
+        real_next_obs = replace_done_next_obs(next_obs, dones, infos)
 
         rb.add(
             obs,
@@ -203,6 +204,7 @@ def main():
 
     envs.close()
     eval_and_log(ts, args.total_timesteps)
+    eval_envs.close()
     wandb.finish()
 
 

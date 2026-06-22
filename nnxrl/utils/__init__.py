@@ -31,14 +31,22 @@ def select_actor_observations(observations: jax.Array, asymmetric_obs: bool, act
     return observations[..., : actor_obs_dim]
 
 
-def replace_truncated_next_obs(
+def replace_done_next_obs(
     next_obs: np.ndarray,
-    truncations: np.ndarray,
+    dones: np.ndarray,
     infos: dict[str, Any],
 ) -> np.ndarray:
-    """Replace autoreset observations with terminal observations for truncated envs."""
+    """Restore final observations for environments that ended this step."""
     real_next_obs = next_obs.copy()
-    for idx, trunc in enumerate(truncations):
-        if trunc:
-            real_next_obs[idx] = infos["final_obs"][idx]
+
+    if not np.any(dones):
+        return real_next_obs
+
+    if "final_obs" not in infos:
+        raise KeyError('Expected infos["final_obs"] when any environment is done.')
+
+    final_obs = infos["final_obs"]
+    for env_idx in np.flatnonzero(dones):
+        real_next_obs[env_idx] = final_obs[env_idx]
+
     return real_next_obs
