@@ -58,7 +58,7 @@ class Args:
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False   # will be set automatically
     use_bias: Literal[True, False] = False
-    block_type: Literal['glu', 'flash'] = 'glu'
+    use_learnable_scale: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "final"
     action_repeat: int = 1
@@ -113,7 +113,7 @@ def main():
             action_high=envs.single_action_space.high,
             action_low=envs.single_action_space.low,
             use_bias=args.use_bias,
-            block_type=args.block_type
+            use_learnable_scale=args.use_learnable_scale
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -123,7 +123,7 @@ def main():
         num_blocks=args.critic_num_blocks,
         num_head=args.num_head,
         use_bias=args.use_bias,
-        block_type=args.block_type
+        use_learnable_scale=args.use_learnable_scale
     )
     if args.normalize_parameters:
         project_param(critic)

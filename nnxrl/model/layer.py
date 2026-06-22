@@ -192,13 +192,41 @@ class FlashSACEmbedder(nnx.Module):
 
 
 class FlashSACBlock(nnx.Module):
-    def __init__(self, hidden_dim: int, rngs: nnx.Rngs, expansion: int = 4, use_bias: bool = True):
-        self.w1 = nnx.Linear(hidden_dim, hidden_dim * expansion,
-                             rngs=rngs, kernel_init=orthogonal(1), use_bias = use_bias)
-        self.w2 = nnx.Linear(hidden_dim * expansion, hidden_dim, rngs=rngs, kernel_init=orthogonal(1), use_bias = use_bias)
+    def __init__(
+        self,
+        hidden_dim: int,
+        rngs: nnx.Rngs,
+        expansion: int = 4,
+        use_bias: bool = True,
+        use_learnable_scale: bool = False,
+        scale_init: float = 1e-2,
+    ):
+        self.w1 = nnx.Linear(
+            hidden_dim,
+            hidden_dim * expansion,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+            use_bias=use_bias,
+        )
+        self.w2 = nnx.Linear(
+            hidden_dim * expansion,
+            hidden_dim,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+            use_bias=use_bias,
+        )
         self.norm1 = nnx.BatchNorm(
-            num_features=hidden_dim * expansion, rngs=rngs)
-        self.norm2 = nnx.BatchNorm(num_features=hidden_dim, rngs=rngs)
+            num_features=hidden_dim * expansion,
+            rngs=rngs,
+        )
+        self.norm2 = nnx.BatchNorm(
+            num_features=hidden_dim,
+            rngs=rngs,
+        )
+
+        self.learnable_scale = use_learnable_scale
+        if self.learnable_scale:
+            self.scale = nnx.Param(jnp.ones((hidden_dim,)) * scale_init)
 
     def __call__(self, x: jax.Array, training: bool):
         residual = x
@@ -208,46 +236,12 @@ class FlashSACBlock(nnx.Module):
         x = self.w2(x)
         x = self.norm2(x, use_running_average=not training)
         x = nnx.relu(x)
-        return x + residual
 
+        if self.learnable_scale:
+            x = self.scale.value * x
 
-class ReGLUBlock(nnx.Module):
-    def __init__(
-        self,
-        hidden_dim: int,
-        rngs: nnx.Rngs,
-        expansion: int = 4,
-        use_bias: bool = True,
-    ):
-        ffn_dim = int(hidden_dim * expansion * 2 / 3)
+        return residual + x
 
-        self.w_in = nnx.Linear(
-            hidden_dim,
-            2 * ffn_dim,
-            rngs=rngs,
-            kernel_init=orthogonal(1),
-            use_bias=use_bias,
-        )
-        self.w_out = nnx.Linear(
-            ffn_dim,
-            hidden_dim,
-            rngs=rngs,
-            kernel_init=orthogonal(1),
-            use_bias=use_bias,
-        )
-        self.norm_in = nnx.BatchNorm(num_features=2 * ffn_dim, rngs=rngs)
-        self.norm_out = nnx.BatchNorm(num_features=hidden_dim, rngs=rngs)
-
-    def __call__(self, x: jax.Array, training: bool) -> jax.Array:
-        residual = x
-        x = self.w_in(x)
-        x = self.norm_in(x, use_running_average=not training)
-        gate, up = jnp.split(x, 2, axis=-1)
-        x = nnx.relu(gate) * up
-        x = self.w_out(x)
-        x = self.norm_out(x, use_running_average=not training)
-        x = nnx.relu(x)
-        return x + residual
 
 
 class Encoder(nnx.Module):
@@ -257,16 +251,10 @@ class Encoder(nnx.Module):
                 hidden_dim: int,
                 rngs: nnx.Rngs,
                 use_bias: bool = True,
-                block_type: str = 'flash'):
+                use_learnable_scale: bool = False):
         self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs, use_bias)
-        if block_type == 'flash':
-            self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias)
+        self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias, use_learnable_scale)
                        for _ in range(num_blocks)]
-        elif block_type == 'glu':
-            self.blocks = [ReGLUBlock(hidden_dim, rngs, 4, use_bias)
-                       for _ in range(num_blocks)]
-        else:
-            raise ValueError(f"got block type {block_type}")
         self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs)
 
     def __call__(self, x: jax.Array, training: bool):

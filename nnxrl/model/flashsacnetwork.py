@@ -25,7 +25,7 @@ class FlashSACActor(nnx.Module):
         log_std_max: float = 2.0,
         squash_log_std: bool = True,
         use_bias: bool = True,
-        block_type: str = 'flash'
+        use_learnable_scale: bool = True
     ):
         self.obs_dim = flattened_dim(obs_dim)
         self.action_dim = action_dim
@@ -35,7 +35,7 @@ class FlashSACActor(nnx.Module):
             self.action_low, self.action_high
         )
 
-        self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, block_type=block_type)
+        self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, use_learnable_scale=use_learnable_scale)
         self.fc_mean = nnx.Linear(
             hidden_dim,
             action_dim,
@@ -154,12 +154,12 @@ class FlashSACQNetwork(nnx.Module):
         num_blocks: int = 2,
         num_head: int = 1,
         use_bias: bool = True,
-        block_type: str = 'flash'
+        use_learnable_scale: bool = True
     ):
         self.obs_dim = flattened_dim(obs_dim)
         self.action_dim = action_dim
         self.encoder = Encoder(
-            self.obs_dim + self.action_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, block_type=block_type)
+            self.obs_dim + self.action_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, use_learnable_scale=use_learnable_scale)
         self.out = nnx.Linear(
             hidden_dim,
             num_head,
@@ -192,7 +192,7 @@ class FlashSACDoubleCritic(nnx.Module):
         num_blocks: int = 2,
         num_head: int = 1,
         use_bias: bool = True,
-        block_type: str = 'flash'
+        use_learnable_scale: bool = True
     ):
         self.critic = FlashSACQNetwork(
             obs_dim=obs_dim,
@@ -202,7 +202,7 @@ class FlashSACDoubleCritic(nnx.Module):
             num_blocks=num_blocks,
             num_head=num_head,
             use_bias=use_bias,
-            block_type=block_type
+            use_learnable_scale=use_learnable_scale
         )
 
     @nnx.vmap(in_axes=(0, None, None, None), out_axes=0)
