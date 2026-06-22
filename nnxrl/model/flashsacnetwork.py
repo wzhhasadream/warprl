@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from .layer import orthogonal, FlashSACEncoder
+from .layer import orthogonal, Encoder
 from .policy import (
     SquashedTanhGaussianPolicy,
     action_scale_bias,
@@ -24,7 +24,8 @@ class FlashSACActor(nnx.Module):
         log_std_min: float = -10.0,
         log_std_max: float = 2.0,
         squash_log_std: bool = True,
-        use_bias: bool = True
+        use_bias: bool = True,
+        block_type: str = 'flash'
     ):
         self.obs_dim = flattened_dim(obs_dim)
         self.action_dim = action_dim
@@ -34,7 +35,7 @@ class FlashSACActor(nnx.Module):
             self.action_low, self.action_high
         )
 
-        self.encoder = FlashSACEncoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias)
+        self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, block_type=block_type)
         self.fc_mean = nnx.Linear(
             hidden_dim,
             action_dim,
@@ -111,7 +112,7 @@ class FlashSACTanhDetActor(nnx.Module):
             self.action_low, self.action_high
         )
 
-        self.encoder = FlashSACEncoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias)
+        self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias)
         self.head = nnx.Linear(
             hidden_dim,
             action_dim,
@@ -152,12 +153,13 @@ class FlashSACQNetwork(nnx.Module):
         hidden_dim: int = 256,
         num_blocks: int = 2,
         num_head: int = 1,
-        use_bias: bool = True
+        use_bias: bool = True,
+        block_type: str = 'flash'
     ):
         self.obs_dim = flattened_dim(obs_dim)
         self.action_dim = action_dim
-        self.encoder = FlashSACEncoder(
-            self.obs_dim + self.action_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias)
+        self.encoder = Encoder(
+            self.obs_dim + self.action_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, block_type=block_type)
         self.out = nnx.Linear(
             hidden_dim,
             num_head,
@@ -180,7 +182,7 @@ class FlashSACQNetwork(nnx.Module):
 class FlashSACDoubleCritic(nnx.Module):
     """Ensembled scalar critic for FlashSAC-style training."""
 
-    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None), out_axes=0)
+    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None, None), out_axes=0)
     def __init__(
         self,
         obs_dim: int | tuple[int, ...],
@@ -189,7 +191,8 @@ class FlashSACDoubleCritic(nnx.Module):
         hidden_dim: int = 256,
         num_blocks: int = 2,
         num_head: int = 1,
-        use_bias: bool = True
+        use_bias: bool = True,
+        block_type: str = 'flash'
     ):
         self.critic = FlashSACQNetwork(
             obs_dim=obs_dim,

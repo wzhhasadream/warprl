@@ -211,17 +211,39 @@ class FlashSACBlock(nnx.Module):
         return x + residual
 
 
+class SwiGLUBlock(nnx.Module):
+    def __init__(self, hidden_dim, rngs, expansion=4, use_bias=True):
+        ffn_dim = int(hidden_dim * expansion * 2 / 3)
 
-class FlashSACEncoder(nnx.Module):
+        self.norm1 = nnx.RMSNorm(ffn_dim, rngs=rngs)
+        self.norm2 = nnx.RMSNorm(ffn_dim, rngs=rngs)
+        self.w_in = nnx.Linear(hidden_dim, 2 * ffn_dim, rngs=rngs, use_bias=use_bias)
+        self.w_out = nnx.Linear(ffn_dim, hidden_dim, rngs=rngs, use_bias=use_bias)
+
+    def __call__(self, x, **kwargs):
+        residual = x
+        gate, up = jnp.split(self.w_in(x), 2, axis=-1)
+        gate, up = self.norm1(gate), self.norm2(up)
+        return residual + self.w_out(nnx.silu(gate) * up)
+
+
+class Encoder(nnx.Module):
     def __init__(self, 
                 input_dim: int,
                 num_blocks: int,
                 hidden_dim: int,
                 rngs: nnx.Rngs,
-                use_bias: bool = True):
+                use_bias: bool = True,
+                block_type: str = 'flash'):
         self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs, use_bias)
-        self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias)
+        if block_type == 'flash':
+            self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias)
                        for _ in range(num_blocks)]
+        elif block_type == 'glu':
+            self.blocks = [SwiGLUBlock(hidden_dim, rngs, 4, use_bias)
+                       for _ in range(num_blocks)]
+        else:
+            raise ValueError(f"got block type {block_type}")
         self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs)
 
     def __call__(self, x: jax.Array, training: bool):
