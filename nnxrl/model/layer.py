@@ -215,7 +215,7 @@ class SwiGLUBlock(nnx.Module):
     def __init__(self, hidden_dim, rngs, expansion=4, use_bias=True):
         ffn_dim = int(hidden_dim * expansion * 2 / 3)
 
-        self.norm = nnx.BatchNorm(ffn_dim, rngs=rngs)
+        self.norm = nnx.BatchNorm(hidden_dim, rngs=rngs)
         self.w_in = nnx.Linear(hidden_dim, 2 * ffn_dim, rngs=rngs, use_bias=use_bias, kernel_init=orthogonal(1))
         self.w_out = nnx.Linear(ffn_dim, hidden_dim, rngs=rngs, use_bias=use_bias, kernel_init=orthogonal(1))
 
