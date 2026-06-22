@@ -59,6 +59,7 @@ class Args:
     asymmetric_obs: Literal[True, False] = False   # will be set automatically
     use_bias: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
+    log_path: str = "final"
     action_repeat: int = 1
     coupled_flow: Literal[True, False] = False 
     num_ode: int = 1
@@ -90,7 +91,7 @@ def main():
     obs, _ = envs.reset(seed=args.seed)
     args.target_entropy = 0.5 * action_dim * np.log(2 * np.pi * np.e * 0.15 ** 2) 
 
-    wandb.init(project='final', config=vars(args), name=f'{args.env_id}')
+    wandb.init(project=args.log_path, config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
     if args.coupled_flow:
