@@ -215,15 +215,14 @@ class SwiGLUBlock(nnx.Module):
     def __init__(self, hidden_dim, rngs, expansion=4, use_bias=True):
         ffn_dim = int(hidden_dim * expansion * 2 / 3)
 
-        self.norm1 = nnx.RMSNorm(ffn_dim, rngs=rngs)
-        self.norm2 = nnx.RMSNorm(ffn_dim, rngs=rngs)
+        self.norm = nnx.BatchNorm(ffn_dim, rngs=rngs)
         self.w_in = nnx.Linear(hidden_dim, 2 * ffn_dim, rngs=rngs, use_bias=use_bias, kernel_init=orthogonal(1))
         self.w_out = nnx.Linear(ffn_dim, hidden_dim, rngs=rngs, use_bias=use_bias, kernel_init=orthogonal(1))
 
-    def __call__(self, x, **kwargs):
+    def __call__(self, x, training):
         residual = x
+        x = self.norm(x, use_running_average=not training)
         gate, up = jnp.split(self.w_in(x), 2, axis=-1)
-        gate, up = self.norm1(gate), self.norm2(up)
         return residual + self.w_out(nnx.silu(gate) * up)
 
 
