@@ -211,7 +211,7 @@ class FlashSACBlock(nnx.Module):
         return x + residual
 
 
-class ReiGLUBlock(nnx.Module):
+class ReGLUBlock(nnx.Module):
     def __init__(
         self,
         hidden_dim: int,
@@ -263,7 +263,7 @@ class Encoder(nnx.Module):
             self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias)
                        for _ in range(num_blocks)]
         elif block_type == 'glu':
-            self.blocks = [ReiGLUBlock(hidden_dim, rngs, 4, use_bias)
+            self.blocks = [ReGLUBlock(hidden_dim, rngs, 4, use_bias)
                        for _ in range(num_blocks)]
         else:
             raise ValueError(f"got block type {block_type}")
