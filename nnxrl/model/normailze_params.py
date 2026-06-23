@@ -2,17 +2,11 @@ import jax.numpy as jnp
 from flax import nnx
 import jax
 
-def normalize_linear_kernel(kernel: jax.Array, normalize_type: str = 'flash', eps: float = 1e-8) -> jax.Array:
-    if normalize_type == 'flash':
-        if kernel.ndim == 2:  
-            axis = 0
-        elif kernel.ndim == 3: 
-            axis = 1
-    elif normalize_type == 'rainbow':
-        if kernel.ndim == 2:   
-            axis = (0, 1)
-        elif kernel.ndim == 3:  
-            axis = (1, 2)
+def normalize_linear_kernel(kernel: jax.Array, eps: float = 1e-8) -> jax.Array:
+    if kernel.ndim == 2:  
+        axis = 0
+    elif kernel.ndim == 3: 
+        axis = 1
     else:
         raise ValueError(f"Unsupported Linear kernel shape: {kernel.shape}")
 
@@ -44,7 +38,7 @@ def normalize_scale(scale: jax.Array, eps: float = 1e-8) -> jax.Array:
 def project_param(module: nnx.Module, normalize_type: str = 'flash') -> None:
     for _, m in module.iter_modules():
         if isinstance(m, nnx.Linear):
-            m.kernel.value = normalize_linear_kernel(m.kernel.value, normalize_type)
+            m.kernel.value = normalize_linear_kernel(m.kernel.value)
 
         if normalize_type == 'flash':
 
