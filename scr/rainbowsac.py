@@ -55,10 +55,10 @@ class Args:
     num_q: int = 2
     num_head: int = 101
     normalize_parameters: Literal[True, False] = True
+    normailze_type: Literal['flash', 'rainbow'] = 'flash'
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False   # will be set automatically
     use_bias: Literal[True, False] = False
-    use_learnable_scale: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "final"
     action_repeat: int = 1
@@ -112,8 +112,7 @@ def main():
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
             action_low=envs.single_action_space.low,
-            use_bias=args.use_bias,
-            use_learnable_scale=args.use_learnable_scale
+            use_bias=args.use_bias
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -122,12 +121,11 @@ def main():
         hidden_dim=args.critic_hidden_dim,
         num_blocks=args.critic_num_blocks,
         num_head=args.num_head,
-        use_bias=args.use_bias,
-        use_learnable_scale=args.use_learnable_scale
+        use_bias=args.use_bias
     )
     if args.normalize_parameters:
-        project_param(critic)
-        project_param(actor)
+        project_param(critic, args.normailze_type)
+        project_param(actor, args.normailze_type)
     alpha = Alpha() 
     actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.end_lr / args.policy_lr)))
     critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.end_lr / args.q_lr)))
