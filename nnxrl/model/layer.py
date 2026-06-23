@@ -197,9 +197,7 @@ class FlashSACBlock(nnx.Module):
         hidden_dim: int,
         rngs: nnx.Rngs,
         expansion: int = 4,
-        use_bias: bool = True,
-        use_learnable_scale: bool = False,
-        scale_init: float = 1e-2,
+        use_bias: bool = True
     ):
         self.w1 = nnx.Linear(
             hidden_dim,
@@ -224,9 +222,6 @@ class FlashSACBlock(nnx.Module):
             rngs=rngs,
         )
 
-        self.learnable_scale = use_learnable_scale
-        if self.learnable_scale:
-            self.scale = nnx.Param(jnp.ones((hidden_dim,)) * scale_init)
 
     def __call__(self, x: jax.Array, training: bool):
         residual = x
@@ -236,9 +231,6 @@ class FlashSACBlock(nnx.Module):
         x = self.w2(x)
         x = self.norm2(x, use_running_average=not training)
         x = nnx.relu(x)
-
-        if self.learnable_scale:
-            x = self.scale.value * x
 
         return residual + x
 
@@ -250,10 +242,9 @@ class Encoder(nnx.Module):
                 num_blocks: int,
                 hidden_dim: int,
                 rngs: nnx.Rngs,
-                use_bias: bool = True,
-                use_learnable_scale: bool = False):
+                use_bias: bool = True):
         self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs, use_bias)
-        self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias, use_learnable_scale)
+        self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias)
                        for _ in range(num_blocks)]
         self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs)
 

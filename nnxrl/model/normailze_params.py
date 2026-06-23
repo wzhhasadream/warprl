@@ -2,11 +2,17 @@ import jax.numpy as jnp
 from flax import nnx
 import jax
 
-def normalize_linear_kernel(kernel: jax.Array, eps: float = 1e-8) -> jax.Array:
-    if kernel.ndim == 2:   # 单个模型
-        axis = 0
-    elif kernel.ndim == 3:  # 集成模型
-        axis = 1
+def normalize_linear_kernel(kernel: jax.Array, type: str = 'flash', eps: float = 1e-8) -> jax.Array:
+    if type == 'flash':
+        if kernel.ndim == 2:  
+            axis = 0
+        elif kernel.ndim == 3: 
+            axis = 1
+    elif type == 'rainbow':
+        if kernel.ndim == 2:   
+            axis = (0, 1)
+        elif kernel.ndim == 3:  
+            axis = (1, 2)
     else:
         raise ValueError(f"Unsupported Linear kernel shape: {kernel.shape}")
 
@@ -35,20 +41,22 @@ def normalize_scale(scale: jax.Array, eps: float = 1e-8) -> jax.Array:
     return scale * factor
 
 
-def project_param(module: nnx.Module) -> None:
+def project_param(module: nnx.Module, type: str = 'flash') -> None:
     for _, m in module.iter_modules():
         if isinstance(m, nnx.Linear):
-            m.kernel.value = normalize_linear_kernel(m.kernel.value)
+            m.kernel.value = normalize_linear_kernel(m.kernel.value, type)
 
-        elif isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
-            scale = getattr(m, "scale", None)
-            bias = getattr(m, "bias", None)
-            if scale is not None and bias is not None:
-                scale.value, bias.value = normalize_scale_bias(
-                    scale.value, bias.value
-                )
+        if type == 'flash':
 
-        elif hasattr(nnx, "RMSNorm") and isinstance(m, nnx.RMSNorm):
-            scale = getattr(m, "scale", None)
-            if scale is not None:
-                scale.value = normalize_scale(scale.value)
+            if isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
+                scale = getattr(m, "scale", None)
+                bias = getattr(m, "bias", None)
+                if scale is not None and bias is not None:
+                    scale.value, bias.value = normalize_scale_bias(
+                        scale.value, bias.value
+                    )
+
+            elif hasattr(nnx, "RMSNorm") and isinstance(m, nnx.RMSNorm):
+                scale = getattr(m, "scale", None)
+                if scale is not None:
+                    scale.value = normalize_scale(scale.value)

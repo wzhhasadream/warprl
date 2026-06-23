@@ -307,7 +307,7 @@ def update_critic(
         loss, has_aux=True)(critic, target_critic)
     critic_opt.update(grads)
     if config.normalize_parameters:
-        project_param(critic)
+        project_param(critic, config.normailze_type)
     return info
 
 
@@ -370,7 +370,7 @@ def update_actor(
     )(actor, critic)
     actor_opt.update(grads)
     if config.normalize_parameters:
-        project_param(actor)
+        project_param(actor, config.normailze_type)
     return info
 
 
