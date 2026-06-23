@@ -55,7 +55,7 @@ class Args:
     num_q: int = 2
     num_head: int = 101
     normalize_parameters: Literal[True, False] = True
-    normailze_type: Literal['flash', 'rainbow'] = 'flash'
+    normalize_type: Literal['flash', 'rainbow'] = 'rainbow'
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False   # will be set automatically
     use_bias: Literal[True, False] = False
@@ -124,8 +124,8 @@ def main():
         use_bias=args.use_bias
     )
     if args.normalize_parameters:
-        project_param(critic, args.normailze_type)
-        project_param(actor, args.normailze_type)
+        project_param(critic, args.normalize_type)
+        project_param(actor, args.normalize_type)
     alpha = Alpha() 
     actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.end_lr / args.policy_lr)))
     critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.end_lr / args.q_lr)))

@@ -2,13 +2,13 @@ import jax.numpy as jnp
 from flax import nnx
 import jax
 
-def normalize_linear_kernel(kernel: jax.Array, type: str = 'flash', eps: float = 1e-8) -> jax.Array:
-    if type == 'flash':
+def normalize_linear_kernel(kernel: jax.Array, normalize_type: str = 'flash', eps: float = 1e-8) -> jax.Array:
+    if normalize_type == 'flash':
         if kernel.ndim == 2:  
             axis = 0
         elif kernel.ndim == 3: 
             axis = 1
-    elif type == 'rainbow':
+    elif normalize_type == 'rainbow':
         if kernel.ndim == 2:   
             axis = (0, 1)
         elif kernel.ndim == 3:  
@@ -41,12 +41,12 @@ def normalize_scale(scale: jax.Array, eps: float = 1e-8) -> jax.Array:
     return scale * factor
 
 
-def project_param(module: nnx.Module, type: str = 'flash') -> None:
+def project_param(module: nnx.Module, normalize_type: str = 'flash') -> None:
     for _, m in module.iter_modules():
         if isinstance(m, nnx.Linear):
-            m.kernel.value = normalize_linear_kernel(m.kernel.value, type)
+            m.kernel.value = normalize_linear_kernel(m.kernel.value, normalize_type)
 
-        if type == 'flash':
+        if normalize_type == 'flash':
 
             if isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
                 scale = getattr(m, "scale", None)
