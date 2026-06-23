@@ -181,7 +181,7 @@ def main():
                 rewards, dones
             )
 
-        real_next_obs = replace_done_next_obs(next_obs, dones, infos)
+        real_next_obs = replace_done_next_obs(next_obs, truncations, infos)
 
         rb.add(
             obs,
