@@ -102,7 +102,7 @@ def evaluate_policy(
 
 
 def record_video(
-    policy: Callable[np.ndarray],
+    policy: Callable,
     env: VectorEnv,
     num_episodes: int = 10,
     video_length: int = 1000,
