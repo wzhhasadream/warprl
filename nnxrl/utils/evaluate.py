@@ -104,7 +104,7 @@ def evaluate_policy(
 def record_video(
     policy: Callable,
     env: VectorEnv,
-    num_episodes: int = 10,
+    num_episodes: int = 1,
     video_length: int = 1000,
 ) -> np.ndarray:
     if num_episodes == 0:

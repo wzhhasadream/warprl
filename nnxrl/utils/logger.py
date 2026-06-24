@@ -178,15 +178,16 @@ class Run:
         import imageio.v2 as imageio
         self.video_path = os.path.join(self.run_dir, 'video', f'step_{step}')
         os.makedirs(self.video_path, exist_ok=True)
+        duration = int(round(1000 / fps))
         if videos.ndim == 5:
             # [B, T, H, W, C] -> save each video as one gif
             for i, frames in enumerate(videos):
                 path = os.path.join(self.video_path, f"video_{i}.gif")
-                imageio.mimsave(path, frames, fps=fps)
+                imageio.mimsave(path, frames, duration=duration)
         elif videos.ndim == 4:
             # [T, H, W, C] -> save one gif
             path  = os.path.join(self.video_path, f"video.gif")
-            imageio.mimsave(path, videos, fps=fps)
+            imageio.mimsave(path, frames, duration=duration)
 
     def save_agent(self, agent, step: int):
         model_path = os.path.join(self.run_dir, f"model")

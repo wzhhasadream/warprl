@@ -28,9 +28,9 @@ import dataclasses
 class Args:
     profile: Literal["auto", "cpu_sim", "gpu_sim"] = "auto"
 
-    env_id: str = "humanoid-run"
+    env_id: str = "h1-run-v0"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground'] = 'dmc'
+                      'humanoid_bench', 'playground'] = 'humanoid_bench'
 
     seed: int = 1
 
