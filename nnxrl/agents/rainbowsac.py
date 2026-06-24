@@ -110,7 +110,8 @@ class TrainState:
             "critic_opt": self.critic_opt,
             "alpha": self.alpha,
             "alpha_opt": self.alpha_opt,
-            "grad_updates": self.grad_updates
+            "grad_updates": self.grad_updates,
+            "reward_normalizer": self.reward_normalizer
         })
 
     def load(self, path: str):
@@ -122,7 +123,8 @@ class TrainState:
             "critic_opt": self.critic_opt,
             "alpha": self.alpha,
             "alpha_opt": self.alpha_opt,
-            "grad_updates": self.grad_updates
+            "grad_updates": self.grad_updates,
+            "reward_normalizer": self.reward_normalizer
         })
 
         return self.replace(**model_dict)
@@ -307,7 +309,7 @@ def update_critic(
         loss, has_aux=True)(critic, target_critic)
     critic_opt.update(grads)
     if config.normalize_parameters:
-        project_param(critic, config.normalize_type)
+        project_param(critic)
     return info
 
 
@@ -370,7 +372,7 @@ def update_actor(
     )(actor, critic)
     actor_opt.update(grads)
     if config.normalize_parameters:
-        project_param(actor, config.normalize_type)
+        project_param(actor)
     return info
 
 

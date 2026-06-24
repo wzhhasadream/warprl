@@ -1,6 +1,6 @@
 from .replaybuffer import JAXReplayBuffer, Batch, ReplayBuffer, GPUReplayBuffer
 from .checkpoint import load_states, save_states
-from .evaluate import evaluate_policy, evaluate_playground_policy
+from .evaluate import evaluate_policy, record_video
 from .normalization import RMS, RewardNormalizer
 from .zeta_dist import (
     build_truncated_zeta_cdf,

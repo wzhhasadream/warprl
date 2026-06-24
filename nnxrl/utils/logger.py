@@ -174,6 +174,27 @@ class Run:
         print(f"Run finished. Data saved to: {self.run_dir}")
 
 
+    def video(self, videos: np.ndarray, step: int, fps: int = 30):
+        import imageio.v2 as imageio
+        self.video_path = os.path.join(self.run_dir, 'video', f'{step}')
+        os.makedirs(self.video_path, exist_ok=True)
+        if videos.ndim == 5:
+            # [B, T, H, W, C] -> save each video as one gif
+            for i, frames in enumerate(videos):
+                path = os.path.join(self.video_path, f"video_{i}.gif")
+                imageio.mimsave(path, frames, fps=fps)
+        elif videos.ndim == 4:
+            # [T, H, W, C] -> save one gif
+            path  = os.path.join(self.video_path, f"video.gif")
+            imageio.mimsave(path, videos, fps=fps)
+
+    def save_agent(self, agent, step: int):
+        model_path = os.path.join(self.run_dir, f"model")
+        os.makedirs(model_path, exist_ok=True)
+        agent.save(os.path.join(model_path, f"{step}_ckpt"))
+
+
+
 def init(
     project: str,
     name: Optional[str] = None,
@@ -203,6 +224,18 @@ def log(data: Dict[str, Union[float, int]], step: Optional[int] = None, commit: 
     if _current_run is None:
         raise RuntimeError("No active run. Call init() first.")
     _current_run.log(data, step, commit)
+
+
+def video(videos: np.ndarray, step: int, fps: int = 30):
+    if _current_run is None:
+        raise RuntimeError("No active run. Call init() first.")
+    _current_run.video(videos, step, fps)
+
+
+def save_agent(agent, step: int):
+    if _current_run is None:
+        raise RuntimeError("No active run. Call init() first.")
+    _current_run.save_agent(agent, step)
 
 
 def finish():

@@ -35,22 +35,21 @@ def normalize_scale(scale: jax.Array, eps: float = 1e-8) -> jax.Array:
     return scale * factor
 
 
-def project_param(module: nnx.Module, normalize_type: str = 'flash') -> None:
+def project_param(module: nnx.Module) -> None:
     for _, m in module.iter_modules():
         if isinstance(m, nnx.Linear):
             m.kernel.value = normalize_linear_kernel(m.kernel.value)
 
-        if normalize_type == 'flash':
 
-            if isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
-                scale = getattr(m, "scale", None)
-                bias = getattr(m, "bias", None)
-                if scale is not None and bias is not None:
-                    scale.value, bias.value = normalize_scale_bias(
-                        scale.value, bias.value
-                    )
+        if isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
+            scale = getattr(m, "scale", None)
+            bias = getattr(m, "bias", None)
+            if scale is not None and bias is not None:
+                scale.value, bias.value = normalize_scale_bias(
+                    scale.value, bias.value
+                )
 
-            elif hasattr(nnx, "RMSNorm") and isinstance(m, nnx.RMSNorm):
-                scale = getattr(m, "scale", None)
-                if scale is not None:
-                    scale.value = normalize_scale(scale.value)
+        elif hasattr(nnx, "RMSNorm") and isinstance(m, nnx.RMSNorm):
+            scale = getattr(m, "scale", None)
+            if scale is not None:
+                scale.value = normalize_scale(scale.value)

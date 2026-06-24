@@ -101,66 +101,49 @@ def evaluate_policy(
     return result
 
 
+def record_video(
+    policy: Callable[np.ndarray],
+    env: VectorEnv,
+    num_episodes: int = 10,
+    video_length: int = 1000,
+) -> np.ndarray:
+    if num_episodes == 0:
+        return {}
+    num_envs = env.num_envs
+    num_eval_episodes_per_env = max(num_episodes // num_envs, 1)
 
-def evaluate_playground_policy(
-    env,
-    policy,
-    eval_episodes: int = 100,
-    max_eval_steps: int = 1_000,
-    seed: int = 0
-) -> dict:
-    import jax
-    import jax.numpy as jnp
-    
-    num_envs = eval_episodes
-    init_state = env.reset(jax.random.split(jax.random.PRNGKey(seed), num_envs))
-    def cond_fn(carry):
-        state, returns_buffer, count, step = carry
-        return jnp.logical_and(count < eval_episodes, step < max_eval_steps)
+    total_videos = []
 
-    def body_fn(carry):
-        state, returns_buffer, count, step = carry
+    for _ in range(num_eval_episodes_per_env):
+        videos: list[np.ndarray] = []
 
-        actions = policy(state.obs)
-        next_state = env.step(state, actions)
+        observations, infos = env.reset()
+        images = env.render()  # type: ignore
+        dones = np.zeros(num_envs)
+        while np.sum(dones) < num_envs:
+            actions = policy(observations)
+            actions = np.array(actions)
+            next_observations, rewards, terminateds, truncateds, infos = env.step(
+                actions)
 
-        done = next_state.info["episode_done"].astype(bool)
-        episode_returns = next_state.info["episode"]["r"]
 
-        def write_one(write_carry, i):
-            returns_buffer, count = write_carry
-            valid = jnp.logical_and(done[i], count < eval_episodes)
+            # once an episode is done in a sub-environment, we assume it to be done.
+            dones = np.maximum(dones, terminateds)
+            dones = np.maximum(dones, truncateds)
 
-            returns_buffer = jax.lax.cond(
-                valid,
-                lambda buf: buf.at[count].set(episode_returns[i]),
-                lambda buf: buf,
-                returns_buffer,
-            )
-            count = count + valid.astype(jnp.int32)
-            return (returns_buffer, count), None
+            # proceed
+            videos.append(images)  # type: ignore
+            images = env.render()
+            observations = next_observations
 
-        (returns_buffer, count), _ = jax.lax.scan(
-            write_one,
-            (returns_buffer, count),
-            jnp.arange(num_envs),
-        )
+        total_videos.append(np.stack(videos, axis=1))  # (num_envs, t, c, h, w)
 
-        return next_state, returns_buffer, count, step + 1
+    # TODO: if there is termination, video length can be different
+    # maybe add zero-padding depending on the max length
+    total_videos = np.concatenate(total_videos, axis=0)  # (b, t, h, w, c)
+    total_videos = total_videos[:, :video_length]
 
-    init_returns = jnp.zeros((eval_episodes,), dtype=jnp.float32)
 
-    final_state, returns_buffer, count, step = jax.lax.while_loop(
-        cond_fn,
-        body_fn,
-        (
-            init_state,
-            init_returns,
-            jnp.array(0, dtype=jnp.int32),
-            jnp.array(0, dtype=jnp.int32),
-        ),
-    )
+    env.reset()
 
-    mean_return = returns_buffer.sum() / jnp.maximum(count, 1)
-    std_return = jnp.std(returns_buffer)
-    return {"eval/episode_return": mean_return, "eval/episode_return_std": std_return}
+    return total_videos

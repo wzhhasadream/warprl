@@ -10,7 +10,14 @@ from nnxrl.model import (
     project_param
 )
 from nnxrl.env import create_envs
-from nnxrl.utils import ReplayBuffer, evaluate_policy, replace_done_next_obs, RewardNormalizer, resolve_profile
+from nnxrl.utils import (
+    ReplayBuffer, 
+    evaluate_policy, 
+    replace_done_next_obs, 
+    RewardNormalizer, 
+    resolve_profile, 
+    record_video
+)
 import numpy as np
 import jax
 from optax import adam, cosine_decay_schedule
@@ -55,10 +62,11 @@ class Args:
     num_q: int = 2
     num_head: int = 101
     normalize_parameters: Literal[True, False] = True
-    normalize_type: Literal['flash', 'rainbow'] = 'rainbow'
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False   # will be set automatically
     use_bias: Literal[True, False] = False
+    record_video: Literal[True, False] = False
+    save_agent: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "final"
     action_repeat: int = 1
@@ -78,7 +86,7 @@ def main():
 
     num_critic_updates = int(args.total_timesteps / args.num_envs * args.grad_step_per_env_step)
 
-    envs, eval_envs = create_envs(
+    envs, eval_envs, record_envs = create_envs(
         args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
 
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
@@ -124,8 +132,8 @@ def main():
         use_bias=args.use_bias
     )
     if args.normalize_parameters:
-        project_param(critic, args.normalize_type)
-        project_param(actor, args.normalize_type)
+        project_param(critic)
+        project_param(actor)
     alpha = Alpha() 
     actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.end_lr / args.policy_lr)))
     critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.end_lr / args.q_lr)))
@@ -153,7 +161,12 @@ def main():
         def policy(obs):
             return ts.get_action(obs)
         info = evaluate_policy(eval_envs, policy, args.eval_episode)
-        wandb.log({**info}, global_step)
+        wandb.log(info, global_step)
+        if args.record_video:
+            videos = record_video(policy, record_envs)
+            wandb.video(videos, global_step)
+        if args.save_agent:
+            wandb.save_agent(ts, global_step)
 
     jit_update = ts.make_update_fn(args)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed), 2)
