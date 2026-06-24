@@ -16,7 +16,7 @@ PROFILE_DEFAULTS = {
         gamma=0.99,
         decay_step=80_000
     ),
-    "gpu_sim": dict(
+    "playground": dict(
         num_envs=1024,
         total_timesteps=50_000_896,
         buffer_size=10_000_000,
@@ -26,7 +26,19 @@ PROFILE_DEFAULTS = {
         eval_frequency=5_000_000,
         log_frequency=2_000_000,
         gamma=0.97,
-        decay_step=1_000
+        decay_step=2_000
+    ),
+    "maniskill": dict(
+        num_envs=1024,
+        total_timesteps=50_000_896,
+        buffer_size=10_000_000,
+        learning_starts=100_000,
+        batch_size=2048,
+        grad_step_per_env_step=2,
+        eval_frequency=5_000_000,
+        log_frequency=2_000_000,
+        gamma=0.9,
+        decay_step=2_000
     ),
 }
 
@@ -35,7 +47,7 @@ def resolve_profile(args: Any) -> Any:
     profile = args.profile
     if profile == "auto":
         if args.env_type in GPU_ENV_TYPES:
-            profile = "gpu_sim"
+            profile = args.env_type
         elif args.env_type in CPU_ENV_TYPES:
             profile = "cpu_sim"
         else:

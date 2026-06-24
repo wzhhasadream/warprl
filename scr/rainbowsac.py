@@ -26,11 +26,11 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
-    profile: Literal["auto", "cpu_sim", "gpu_sim"] = "auto"
+    profile: Literal["auto", "cpu_sim", "playground", "maniskill"] = "auto"
 
-    env_id: str = "h1-run-v0"
+    env_id: str = "PickSingleYCB-v1"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground'] = 'humanoid_bench'
+                      'humanoid_bench', 'playground', 'maniskill'] = 'maniskill'
 
     seed: int = 1
 
@@ -65,7 +65,7 @@ class Args:
     normalize_rewards: Literal[True, False] = True
     asymmetric_obs: Literal[True, False] = False   # will be set automatically
     use_bias: Literal[True, False] = False
-    record_video: Literal[True, False] = False
+    record_video: Literal[True, False] = True
     save_agent: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "final"
@@ -162,7 +162,7 @@ def main():
             return ts.get_action(obs)
         info = evaluate_policy(eval_envs, policy, args.eval_episode)
         wandb.log(info, global_step)
-        if args.record_video:
+        if args.record_video and args.seed == 1:
             videos = record_video(policy, record_envs)
             wandb.video(videos, global_step)
         if args.save_agent:
@@ -216,6 +216,7 @@ def main():
     envs.close()
     eval_and_log(ts, args.total_timesteps)
     eval_envs.close()
+    record_envs.close()
     wandb.finish()
 
 
