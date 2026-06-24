@@ -176,7 +176,7 @@ class Run:
 
     def video(self, videos: np.ndarray, step: int, fps: int = 30):
         import imageio.v2 as imageio
-        self.video_path = os.path.join(self.run_dir, 'video', f'{step}')
+        self.video_path = os.path.join(self.run_dir, 'video', f'step_{step}')
         os.makedirs(self.video_path, exist_ok=True)
         if videos.ndim == 5:
             # [B, T, H, W, C] -> save each video as one gif
