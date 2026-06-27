@@ -30,7 +30,7 @@ class Args:
 
     env_id: str = "PickSingleYCB-v1"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill'] = 'maniskill'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'maniskill'
 
     seed: int = 1
 

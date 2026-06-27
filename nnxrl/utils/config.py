@@ -40,6 +40,18 @@ PROFILE_DEFAULTS = {
         gamma=0.9,
         decay_step=2_000
     ),
+    "isaaclab": dict(
+        num_envs=1024,
+        total_timesteps=50_000_896,
+        buffer_size=10_000_000,
+        learning_starts=100_000,
+        batch_size=2048,
+        grad_step_per_env_step=2,
+        eval_frequency=5_000_000,
+        log_frequency=2_000_000,
+        gamma=0.99,
+        decay_step=2_000
+    ),
 }
 
 
