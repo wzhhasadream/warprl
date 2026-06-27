@@ -160,7 +160,7 @@ def main():
     def eval_and_log(ts, global_step):
         def policy(obs):
             return ts.get_action(obs)
-        info = evaluate_policy(eval_envs, policy, args.eval_episode)
+        info = evaluate_policy(eval_envs, policy, args.env_type, args.eval_episode)
         wandb.log(info, global_step)
         if args.record_video and args.seed == 1:
             videos = record_video(policy, record_envs)
