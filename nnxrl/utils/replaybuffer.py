@@ -435,15 +435,16 @@ class GPUReplayBuffer:
     @classmethod
     def create(
         cls,
-        observation_shape: tuple[int, ...] | int,
-        action_shape: tuple[int, ...],
-        max_size: int = int(10e6),
+        obs_shape_space: spaces.Space,
+        action_shape_space: spaces.Space,
+        max_size: int = int(1e6),
         n_envs: int = 1,
         *,
-        obs_dtype: jnp.dtype = jnp.float32,
-        action_dtype: jnp.dtype = jnp.float32,
         linear_decay_steps: int = 0,
         min_weight: float = 0.1,
+        num_buckets: int = 2000,
+        use_approximate_sampling: bool = True,
+        optimize_memory_usage: bool = False,
     ) -> 'GPUReplayBuffer':
         """Initialize a JIT-friendly replay buffer.
 
@@ -453,30 +454,31 @@ class GPUReplayBuffer:
             * `> 0`: newer-biased (prefer recent experiences)
             * `< 0`: older-biased (prefer old experiences)
         """
-
-
-        max_time_size = max(int(max_size) // int(n_envs), 1)
-
         if n_envs <= 0:
             raise ValueError("n_envs must be positive")
         if not 0.0 <= min_weight <= 1.0:
             raise ValueError(f"min_weight must be in [0, 1], got {min_weight}")
+        if optimize_memory_usage:
+            raise NotImplementedError("GPUReplayBuffer does not support optimize_memory_usage")
+        if use_approximate_sampling and linear_decay_steps != 0:
+            raise NotImplementedError("GPUReplayBuffer does not support approximate biased sampling")
 
+        max_time_size = max(int(max_size) // int(n_envs), 1)
         max_time_size = int(max_time_size)
+
+        obs_shape = get_obs_shape(obs_shape_space)
+        if isinstance(obs_shape, dict):
+            raise NotImplementedError("GPUReplayBuffer does not support Dict observation spaces")
+        observation_shape = tuple(obs_shape)
+        action_shape = (get_action_dim(action_shape_space),)
+        obs_dtype = jnp.dtype(obs_shape_space.dtype)
+        action_dtype = jnp.dtype(action_shape_space.dtype)
 
         def zeros_obs(shape_spec: tuple[int, ...]) -> jax.Array:
             return jnp.zeros((max_time_size, n_envs, *shape_spec), dtype=obs_dtype)
 
-        if isinstance(observation_shape, tuple):
-            observations = zeros_obs(observation_shape)
-            next_observations = zeros_obs(observation_shape)
-        elif isinstance(observation_shape, int):
-            observation_shape = (observation_shape,)
-            observations = zeros_obs(observation_shape)
-            next_observations = zeros_obs(observation_shape)
-        else:
-            raise TypeError(
-                f"expected obs_dim to be int|tuple, got {type(observation_shape)}")
+        observations = zeros_obs(observation_shape)
+        next_observations = zeros_obs(observation_shape)
 
         actions = jnp.zeros(
             (max_time_size, n_envs, *action_shape), dtype=action_dtype)
@@ -509,6 +511,30 @@ class GPUReplayBuffer:
             raw_linear_decay_steps=int(linear_decay_steps),
             linear_decay_steps=abs(int(linear_decay_steps)),
             min_weight=float(min_weight),
+        )
+
+    @classmethod
+    def from_env(
+        cls,
+        env: gym.vector.VectorEnv,
+        max_size: int = int(1e6),
+        linear_decay_steps: int = 0,
+        min_weight: float = 0.1,
+        num_buckets: int = 2000,
+        use_approximate_sampling: bool = True,
+        optimize_memory_usage: bool = False,
+    ) -> 'GPUReplayBuffer':
+        """Create GPUReplayBuffer from an environment."""
+        return cls.create(
+            env.single_observation_space,
+            env.single_action_space,
+            max_size=max_size,
+            n_envs=getattr(env, 'num_envs', 1),
+            linear_decay_steps=linear_decay_steps,
+            min_weight=min_weight,
+            num_buckets=num_buckets,
+            use_approximate_sampling=use_approximate_sampling,
+            optimize_memory_usage=optimize_memory_usage,
         )
 
 
