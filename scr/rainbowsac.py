@@ -9,7 +9,7 @@ from nnxrl.model import (
     FlashSACActor,
     project_param
 )
-from nnxrl.env import create_envs
+from nnxrl.env import create_envs, CPU_SIM
 from nnxrl.utils import (
     ReplayBuffer, 
     evaluate_policy, 
@@ -143,7 +143,7 @@ def main():
         if args.normalize_rewards
         else None
     )
-    use_approximate_sampling = True if args.env_type != "playground" else False
+    use_approximate_sampling = True if args.env_type in CPU_SIM else False
     rb = ReplayBuffer(
         envs.single_observation_space,
         envs.single_action_space,

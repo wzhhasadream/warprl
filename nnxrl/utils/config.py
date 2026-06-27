@@ -58,7 +58,7 @@ def resolve_profile(args: Any) -> Any:
         if getattr(args, key) is None:
             setattr(args, key, value)
 
-    if args.env_type == 'myosuite':
+    if args.env_type in ['myosuite', 'maniskill']:
         args.eval_episode = 100
 
     return args

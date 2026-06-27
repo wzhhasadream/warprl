@@ -416,9 +416,7 @@ def update_rainbowsac(ts: TrainState, config: RainbowSACConfig, key: jax.Array, 
     @nnx.scan(in_axes=(nnx.Carry, 0, 0), out_axes=(nnx.Carry, 0))
     def update_minibatch(ts, sub_batch: Batch, key: jax.Array):
         critic_key, policy_key = jax.random.split(key, 2)
-        critic_info = update_critic(ts.actor, ts.critic, ts.alpha, ts.critic_opt, ts.target_critic, config, sub_batch, critic_key)
-        ts = ts.replace(
-            grad_updates=ts.grad_updates + 1)
+
         alpha_value = ts.alpha() 
 
         policy_info = nnx.cond(
@@ -432,6 +430,11 @@ def update_rainbowsac(ts: TrainState, config: RainbowSACConfig, key: jax.Array, 
             },
             ts,
         )
+
+        critic_info = update_critic(ts.actor, ts.critic, ts.alpha, ts.critic_opt, ts.target_critic, config, sub_batch, critic_key)
+        ts = ts.replace(
+            grad_updates=ts.grad_updates + 1)
+            
         nnx.cond(
             ts.grad_updates % config.target_frequency == 0,
             lambda critic, target_critic: soft_update(critic, target_critic, config.tau),
