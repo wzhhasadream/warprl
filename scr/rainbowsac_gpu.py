@@ -27,8 +27,7 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
-    profile: Literal["auto", "playground",
-                     "maniskill", 'playground'] = "auto"
+    profile: Literal["auto", "playground", "maniskill", "isaaclab"] = "auto"
 
     env_id: str = "PickSingleYCB-v1"
     env_type: Literal['playground', 'maniskill', 'isaaclab'] = 'maniskill'
@@ -191,20 +190,25 @@ def main():
             actions)
 
         dones = np.logical_or(terminations, truncations)
-        if args.normalize_rewards:
-            ts = ts.update_reward_normalizer(
-                rewards, dones
-            )
+        real_next_obs = replace_done_next_obs(next_obs, dones, infos)
 
-        real_next_obs = replace_done_next_obs(next_obs, truncations, infos)
-
-        transtation = dict(
-
+        transition = dict(
+            observations=obs,
+            actions=actions,
+            rewards=rewards,
+            next_observations=real_next_obs,
+            terminations=terminations,
+            truncations=truncations,
         )
 
-        rb, ts, info = jit_update(rb, ts, jax.random.fold_in(update_key, global_step))
+        ts, rb, info = jit_update(
+            ts,
+            rb,
+            transition,
+            jax.random.fold_in(update_key, global_step),
+        )
 
-        if global_step % args.log_frequency < args.num_envs:
+        if global_step >= args.learning_starts and global_step % args.log_frequency < args.num_envs:
             wandb.log(info, global_step)
         obs = next_obs
 
