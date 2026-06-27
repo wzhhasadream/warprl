@@ -10,8 +10,14 @@ from nnxrl.model import (
     project_param
 )
 from nnxrl.env import create_envs
-from nnxrl.utils import evaluate_policy, replace_truncated_next_obs, GPUReplayBuffer, RewardNormalizer
-import time
+from nnxrl.utils import (
+    GPUReplayBuffer,
+    evaluate_policy,
+    replace_done_next_obs,
+    RewardNormalizer,
+    resolve_profile,
+    record_video
+)
 import numpy as np
 import jax
 from optax import adam, cosine_decay_schedule
@@ -21,18 +27,31 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
-    env_id: str = "BallInCup"
-    env_type: Literal['playground', 'issaclab', 'maniskill'] = 'playground'
+    profile: Literal["auto", "playground",
+                     "maniskill", 'playground'] = "auto"
+
+    env_id: str = "PickSingleYCB-v1"
+    env_type: Literal['playground', 'maniskill', 'isaaclab'] = 'maniskill'
+
     seed: int = 1
-    num_envs: int = 1024
-    total_timesteps: int = 50_000_896
-    buffer_size: int = int(10e6)
+
+    ##############    depends on env_type ###################
+    num_envs: int | None = None
+    total_timesteps: int | None = None
+    buffer_size: int | None = None
+    learning_starts: int | None = None
+    batch_size: int | None = None
+    grad_step_per_env_step: int | None = None
+    eval_frequency: int | None = None
+    log_frequency: int | None = None
+    gamma: float | None = None
+    decay_step: int | None = None
+    #######################################################
+
     policy_frequency: int = 2
     target_frequency: int = 1
-    learning_starts: int = int(1e5)
-    gamma: float = 0.99
+    eval_episode: int = 10
     tau: float = 1e-2
-    batch_size: int = 2048
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
     end_lr: float = 1.5e-4
@@ -43,20 +62,15 @@ class Args:
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 101
-    exploration_noise: float = 1
     normalize_parameters: Literal[True, False] = True
-    asymmetric_obs: Literal[True, False] = False
     normalize_rewards: Literal[True, False] = True
-    loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"  # used when num_head > 1
-
+    asymmetric_obs: Literal[True, False] = False   # will be set automatically
+    use_bias: Literal[True, False] = False
+    record_video: Literal[True, False] = True
+    save_agent: Literal[True, False] = False
+    loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
+    log_path: str = "final"
     action_repeat: int = 1
-    grad_step_per_env_step: int = 2
-
-    eval_frequency: int = 5_496_832
-    eval_episode: int = 10
-    log_frequency: int = int(1e4)
-
-    decay_step: int = 1_000
     coupled_flow: Literal[True, False] = False
     num_ode: int = 1
     num_step: int = 1
@@ -67,13 +81,13 @@ def main():
     print("=" * 60)
 
     args = tyro.cli(Args)
-    if args.env_type == 'myosuite':
-        args.eval_episode = 100
+    args = resolve_profile(args)
     np.random.seed(args.seed)
 
-    num_critic_updates = int(args.total_timesteps / args.num_envs * args.grad_step_per_env_step)
+    num_critic_updates = int(args.total_timesteps /
+                             args.num_envs * args.grad_step_per_env_step)
 
-    envs, eval_envs = create_envs(
+    envs, eval_envs, record_envs = create_envs(
         args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
 
     action_dim = int(np.prod(np.asarray(envs.single_action_space.shape)))
@@ -85,10 +99,10 @@ def main():
         asymmetric_obs = True
     args.asymmetric_obs = asymmetric_obs
     obs, _ = envs.reset(seed=args.seed)
-    args.target_entropy = 0.5 * action_dim * np.log(2 * np.pi * np.e * 0.15 ** 2) 
+    args.target_entropy = 0.5 * action_dim * \
+        np.log(2 * np.pi * np.e * 0.15 ** 2)
 
-    wandb.init(project='rainbowsac_gpu',
-               config=vars(args), name=f'{args.env_id}')
+    wandb.init(project=args.log_path, config=vars(args), name=f'{args.env_id}')
 
     rngs = nnx.Rngs(args.seed)
     if args.coupled_flow:
@@ -108,6 +122,7 @@ def main():
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
             action_low=envs.single_action_space.low,
+            use_bias=args.use_bias
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -115,67 +130,88 @@ def main():
         rngs.fork(split=args.num_q),
         hidden_dim=args.critic_hidden_dim,
         num_blocks=args.critic_num_blocks,
-        num_head=args.num_head
+        num_head=args.num_head,
+        use_bias=args.use_bias
     )
     if args.normalize_parameters:
         project_param(critic)
         project_param(actor)
     alpha = Alpha()
-    actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr)))
-    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(args.q_lr, num_critic_updates, args.q_lr / args.end_lr)))
-    alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(args.policy_lr, num_critic_updates, args.policy_lr / args.end_lr))) 
-    reward_normailzer = RewardNormalizer.create(args.num_envs, args.gamma) if args.normalize_rewards else None
+    actor_opt = nnx.Optimizer(actor, adam(cosine_decay_schedule(
+        args.policy_lr, num_critic_updates, args.end_lr / args.policy_lr)))
+    critic_opt = nnx.Optimizer(critic, adam(cosine_decay_schedule(
+        args.q_lr, num_critic_updates, args.end_lr / args.q_lr)))
+    alpha_opt = nnx.Optimizer(alpha, adam(cosine_decay_schedule(
+        args.policy_lr, num_critic_updates, args.end_lr / args.policy_lr)))
+    reward_normalizer = (
+        RewardNormalizer.create(args.num_envs, args.gamma)
+        if args.normalize_rewards
+        else None
+    )
 
     rb = GPUReplayBuffer.create(
-        envs.single_observation_space.shape,
-        envs.single_action_space.shape,
+        envs.single_observation_space,
+        envs.single_action_space,
         args.buffer_size,
         n_envs=args.num_envs,
         linear_decay_steps=args.decay_step
     )
 
     ts = TrainState.create(actor, critic, actor_opt,
-                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, seed=args.seed, reward_normailzer=reward_normailzer)
-    start_time = time.time()
+                           critic_opt, alpha=alpha, alpha_opt=alpha_opt, reward_normalizer=reward_normalizer)
 
     def eval_and_log(ts, global_step):
         def policy(obs):
             return ts.get_action(obs)
-        wall_time = time.time() - start_time
-        info = evaluate_policy(eval_envs, policy, args.eval_episode)
-        wandb.log({**info, "eval/wall_time": wall_time}, global_step)
+        info = evaluate_policy(
+            eval_envs, policy, args.env_type, args.eval_episode)
+        wandb.log(info, global_step)
+        if args.record_video and args.seed == 1:
+            videos = record_video(policy, record_envs)
+            wandb.video(videos, global_step)
+        if args.save_agent:
+            wandb.save_agent(ts, global_step)
 
-    jit_train = ts.make_train_step(args)
+    jit_update = ts.make_train_step(args)
     action_key, update_key = jax.random.split(jax.random.PRNGKey(args.seed), 2)
 
     for global_step in range(0, args.total_timesteps, args.num_envs):
-        if global_step % args.eval_frequency == 0:
+        if global_step % args.eval_frequency < args.num_envs:
             eval_and_log(ts, global_step)
         if global_step < args.learning_starts:
-            actions = np.array([envs.single_action_space.sample()
-                               for _ in range(args.num_envs)])
+            actions = envs.action_space.sample()
         else:
             ts, actions = ts.get_exploration_action(
                 obs=obs,
-                key=jax.random.fold_in(action_key, global_step),
-                exploration_noise=args.exploration_noise
+                key=jax.random.fold_in(action_key, global_step)
             )
             actions = np.asarray(actions)
 
         next_obs, rewards, terminations, truncations, infos = envs.step(
             actions)
 
-        real_next_obs = replace_truncated_next_obs(
-            next_obs, truncations, infos)
+        dones = np.logical_or(terminations, truncations)
+        if args.normalize_rewards:
+            ts = ts.update_reward_normalizer(
+                rewards, dones
+            )
 
-        transition = dict(rewards=rewards, terminations=terminations, truncations=truncations, actions=actions, observations=obs, next_observations=real_next_obs)
-        ts, rb, info = jit_train(ts, rb, transition, jax.random.fold_in(update_key, global_step))
+        real_next_obs = replace_done_next_obs(next_obs, truncations, infos)
+
+        transtation = dict(
+
+        )
+
+        rb, ts, info = jit_update(rb, ts, jax.random.fold_in(update_key, global_step))
+
         if global_step % args.log_frequency < args.num_envs:
             wandb.log(info, global_step)
         obs = next_obs
 
     envs.close()
     eval_and_log(ts, args.total_timesteps)
+    eval_envs.close()
+    record_envs.close()
     wandb.finish()
 
 

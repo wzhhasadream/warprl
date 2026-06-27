@@ -521,7 +521,7 @@ class GPUReplayBuffer:
         linear_decay_steps: int = 0,
         min_weight: float = 0.1,
         num_buckets: int = 2000,
-        use_approximate_sampling: bool = True,
+        use_approximate_sampling: bool = False,
         optimize_memory_usage: bool = False,
     ) -> 'GPUReplayBuffer':
         """Create GPUReplayBuffer from an environment."""
@@ -537,7 +537,7 @@ class GPUReplayBuffer:
             optimize_memory_usage=optimize_memory_usage,
         )
 
-    
+
     def add(
             self,
             obs: jax.Array | np.ndarray,
