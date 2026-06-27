@@ -44,7 +44,7 @@ def _extract_step_success(infos: dict, num_envs: int) -> np.ndarray:
 def evaluate_policy(
     envs: Callable | list[Callable] | VectorEnv,
     policy: Callable[[np.ndarray], np.ndarray],
-    env_type: str,
+    env_type: str = 'mujoco',
     eval_episodes: int = 100,
     num_envs: int = 10,
     seed: int = 0,
@@ -66,7 +66,7 @@ def evaluate_policy(
         envs = gymnasium.wrappers.vector.NormalizeObservation(envs)
         envs.obs_rms = copy.deepcopy(rms)
         envs.update_running_mean = False
-    if env_type == 'issaclab':
+    if env_type == 'isaaclab':
         obs, _ = envs.reset(seed=seed, random_start_init=False)
     else:
         obs, _ = envs.reset(seed=seed)
