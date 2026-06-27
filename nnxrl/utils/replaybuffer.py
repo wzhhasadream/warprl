@@ -537,7 +537,7 @@ class GPUReplayBuffer:
             optimize_memory_usage=optimize_memory_usage,
         )
 
-
+    
     def add(
             self,
             obs: jax.Array | np.ndarray,
