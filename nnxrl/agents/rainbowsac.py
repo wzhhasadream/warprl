@@ -279,9 +279,7 @@ def update_critic(
         q_logits = critic(obs_all, actions_all, training=True)[
                 :, : config.batch_size, :]
         next_q_logits = select_min_q_logits(next_q_logits)
-        bins = make_bin_values(
-            config.num_head
-        )   # (num_head , )
+        bins = jnp.asarray(make_bin_values(config.num_head), dtype=next_q_logits.dtype)   # (num_head , )
         target_bins = (
             batch.rewards
             + config.gamma

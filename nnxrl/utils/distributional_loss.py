@@ -54,13 +54,10 @@ def quantile_loss(q_distributional, target_q_distributional, kappa: float = 1.0)
     return quantile_huber_loss(diff, taus, kappa)
 
 
-
-
-
 @lru_cache(maxsize=None)
-def make_bin_values(num_bins: int, min_v: float = -5.0, max_v: float = 5.0, dtype=jnp.float32):
+def make_bin_values(num_bins: int, min_v: float = -5.0, max_v: float = 5.0):
     """Return fixed categorical value atoms in [min_v, max_v]."""
-    return jnp.linspace(min_v, max_v, num_bins, dtype=dtype)
+    return np.linspace(min_v, max_v, num_bins, dtype=np.float32)
 
 
 def categorical_q_values(
@@ -70,7 +67,7 @@ def categorical_q_values(
 ) -> jax.Array:
     """Compute expected Q values from categorical critic logits."""
     num_bins = logits.shape[-1]
-    bin_values = make_bin_values(num_bins, min_v, max_v, dtype=logits.dtype)
+    bin_values = jnp.asarray(make_bin_values(num_bins, min_v, max_v), dtype=logits.dtype)
     probs = jax.nn.softmax(logits, axis=-1)
     return jnp.sum(probs * bin_values, axis=-1, keepdims=True)          #(num_q, batch, 1)
 

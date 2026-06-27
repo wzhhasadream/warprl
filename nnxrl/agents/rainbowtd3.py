@@ -303,7 +303,7 @@ def update_critic(
         ]
         q_logits = critic(obs_all, actions_all, training=True)[:, : config.batch_size, :]
         next_q_logits = select_min_q_logits(next_q_logits)
-        bins = make_bin_values(config.num_head)
+        bins = jnp.asarray(make_bin_values(config.num_head), dtype=next_q_logits.dtype)
         target_bins = batch.rewards + config.gamma * (1.0 - batch.dones) * bins[None, :]
         target_probs = categorical_projection(next_q_logits, target_bins)
         q_loss = categorical_ce_loss(q_logits, target_probs).mean()
