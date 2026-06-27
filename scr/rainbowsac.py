@@ -26,7 +26,7 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
-    profile: Literal["auto", "cpu_sim", "playground", "maniskill"] = "auto"
+    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'playground'] = "auto"
 
     env_id: str = "PickSingleYCB-v1"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
