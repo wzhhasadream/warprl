@@ -18,6 +18,20 @@ PROFILE_DEFAULTS = {
         compute_type='float32',
         n_step=1
     ),
+    "myosuite": dict(
+        num_envs=1,
+        total_timesteps=1_000_000,
+        buffer_size=1_000_000,
+        learning_starts=10_000,
+        batch_size=512,
+        grad_step_per_env_step=1,
+        eval_frequency=50_000,
+        log_frequency=2_001,
+        gamma=0.95,
+        decay_step=80_000,
+        compute_type='float32',
+        n_step=1
+    ),
     "playground": dict(
         num_envs=1024,
         total_timesteps=50_000_896,
@@ -69,7 +83,10 @@ def resolve_profile(args: Any) -> Any:
         if args.env_type in GPU_ENV_TYPES:
             profile = args.env_type
         elif args.env_type in CPU_ENV_TYPES:
-            profile = "cpu_sim"
+            if args.env_type != 'myosuite':
+                profile = "cpu_sim"
+            else:
+                profile = 'myosuite'
         else:
             raise ValueError(f"Unknown env_type: {args.env_type}")
 
