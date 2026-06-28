@@ -66,6 +66,7 @@ class Batch(NamedTuple):
     rewards: jax.Array
     dones: jax.Array
     next_observations: ObsTree
+    discounts: jax.Array
 
 
 
@@ -75,7 +76,8 @@ def create_batch(
     actions: np.ndarray,
     rewards: np.ndarray,
     dones: np.ndarray,
-    next_observations: np.ndarray
+    next_observations: np.ndarray,
+    discounts: np.ndarray | None = None,
 ) -> Batch:
     """
     Create a batch dictionary for JAX.
@@ -87,16 +89,21 @@ def create_batch(
         rewards: shape (batch_size, 1)
         dones: shape (batch_size, 1)
         next_observations: shape (batch_size, obs_dim)
+        discounts: shape (batch_size, 1), discount multiplier for bootstrapping
 
     Returns:
         Batch dictionary with JAX arrays
     """
+    if discounts is None:
+        discounts = np.ones_like(rewards, dtype=np.float32)
+
     return Batch(
         jnp.array(observations), 
         jnp.array(actions), 
         jnp.array(rewards.reshape(-1, 1)), 
         jnp.array(dones.reshape(-1, 1)), 
-        jnp.array(next_observations)
+        jnp.array(next_observations),
+        jnp.array(discounts.reshape(-1, 1))
         )
 
 
@@ -240,7 +247,88 @@ class ReplayBuffer:
             self.ptr = 0
 
 
-    def sample(self, batch_size: int) -> Batch:
+    def _valid_start_indices(self, n_step: int) -> np.ndarray:
+        """Return physical time indices that have a valid n-step suffix."""
+        if self.time_size <= 0:
+            return np.zeros((1,), dtype=np.int64)
+
+        n_step = max(1, min(int(n_step), self.time_size, self.max_time_size))
+        valid_count = max(self.time_size - n_step + 1, 1)
+
+        if self.full:
+            return (self.ptr + np.arange(valid_count, dtype=np.int64)) % self.max_time_size
+        return np.arange(valid_count, dtype=np.int64)
+
+    def _sample_time_indices(self, batch_size: int, n_step: int) -> np.ndarray:
+        """Sample valid starting indices while preserving the configured bias."""
+        valid_indices = self._valid_start_indices(n_step)
+
+        if self._raw_linear_decay_steps == 0:
+            return np.random.choice(valid_indices, size=batch_size)
+
+        if self.use_approximate_sampling and int(n_step) == 1:
+            return self._sample_with_approximate_bias(batch_size)
+
+        valid_timestamps = self.timestamps[valid_indices]
+        age = self.current_time - valid_timestamps
+        if self._raw_linear_decay_steps > 0:
+            weights = np.maximum(self.min_weight, 1.0 - age / self.linear_decay_steps)
+        else:
+            weights = np.minimum(1.0, self.min_weight + age / self.linear_decay_steps)
+
+        probabilities = weights / weights.sum()
+        return np.random.choice(valid_indices, size=batch_size, p=probabilities)
+
+    def _next_obs_at(self, batch_index: np.ndarray, env_index: np.ndarray) -> np.ndarray:
+        if self.optimize_memory_usage:
+            next_obs = self.observations[(batch_index + 1) % self.max_time_size, env_index].copy()
+            for i in range(len(batch_index)):
+                idx = batch_index[i]
+                env_idx = env_index[i]
+                if idx in self.truncated_next_obs and env_idx in self.truncated_next_obs[idx]:
+                    next_obs[i] = self.truncated_next_obs[idx][env_idx]
+            return next_obs
+        return self.next_observations[batch_index, env_index]
+
+    def _gather_n_step(
+        self,
+        batch_index: np.ndarray,
+        env_index: np.ndarray,
+        n_step: int,
+        gamma: float,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Build n-step rewards, final dones, final next observations, and discounts."""
+        if self.optimize_memory_usage and int(n_step) > 1:
+            raise NotImplementedError("n-step sampling is not supported with optimize_memory_usage=True")
+
+        n_step = max(1, min(int(n_step), self.time_size, self.max_time_size))
+        offsets = np.arange(n_step, dtype=np.int64)
+        sequence_indices = (batch_index[:, None] + offsets[None, :]) % self.max_time_size
+
+        rewards = self.rewards[sequence_indices, env_index[:, None]]
+        dones = self.dones[sequence_indices, env_index[:, None]]
+
+        shifted_dones = np.concatenate(
+            [np.zeros_like(dones[:, :1]), dones[:, :-1]],
+            axis=1,
+        )
+        reward_masks = np.cumprod(1.0 - shifted_dones, axis=1)
+        discount_powers = (np.float32(gamma) ** offsets).astype(np.float32)
+        n_step_rewards = np.sum(rewards * reward_masks * discount_powers[None, :], axis=1)
+
+        has_done = dones > 0
+        first_done = np.argmax(has_done, axis=1)
+        final_offsets = np.where(np.any(has_done, axis=1), first_done, n_step - 1)
+        final_indices = sequence_indices[np.arange(len(batch_index)), final_offsets]
+
+        final_dones = self.dones[final_indices, env_index]
+        final_next_obs = self._next_obs_at(final_indices, env_index)
+        effective_n_steps = np.sum(reward_masks, axis=1)
+        discounts = (np.float32(gamma) ** effective_n_steps).astype(np.float32)
+
+        return n_step_rewards, final_dones, final_next_obs, discounts
+
+    def sample(self, batch_size: int, n_step: int = 1, gamma: float = 0.99) -> Batch:
         """
         Args:
             batch_size: Number of samples to draw
@@ -254,39 +342,18 @@ class ReplayBuffer:
                 'next_observations': shape: (batch_size, obs_dim)
         """
 
-        if self._raw_linear_decay_steps == 0:
-            if self.optimize_memory_usage:
-                if not self.full:  
-                    batch_index = np.random.randint(0, self.ptr, size=batch_size)
-                else:  
-                    offsets = np.random.randint(0, self.max_time_size - 1, size=batch_size) # avoid sampling from the current pointer location
-                    batch_index = (self.ptr + 1 + offsets) % self.max_time_size
-            else:
-                batch_index = np.random.randint(0, self.time_size, size=batch_size)
-        else:
-            if self.use_approximate_sampling:
-                batch_index = self._sample_with_approximate_bias(batch_size)
-            else:
-                batch_index = self._sample_with_bias(batch_size)
-
+        batch_index = self._sample_time_indices(batch_size, n_step)
         env_index = np.random.randint(0, self.n_envs, size=batch_size)
-
-        if self.optimize_memory_usage:
-            next_obs = self.observations[(batch_index + 1) % self.max_time_size, env_index].copy()
-            for i in range(batch_size):
-                idx = batch_index[i]
-                env_idx = env_index[i]
-                if idx in self.truncated_next_obs and env_idx in self.truncated_next_obs[idx]:
-                    next_obs[i] = self.truncated_next_obs[idx][env_idx]
-        else:
-            next_obs = self.next_observations[batch_index, env_index]
+        rewards, dones, next_obs, discounts = self._gather_n_step(
+            batch_index, env_index, n_step, gamma)
 
         return create_batch(
             observations=self.observations[batch_index, env_index], 
             actions=self.actions[batch_index, env_index],
-            rewards=self.rewards[batch_index, env_index],
-            dones=self.dones[batch_index, env_index],
-            next_observations=next_obs 
+            rewards=rewards,
+            dones=dones,
+            next_observations=next_obs,
+            discounts=discounts,
         )
 
     def _sample_with_bias(self, batch_size: int) -> np.ndarray:
@@ -599,6 +666,18 @@ class GPUReplayBuffer:
         idx = jnp.arange(self.max_time_size, dtype=self.time_size.dtype)
         return idx < self.time_size
 
+    def _valid_start_mask(self, n_step: int) -> jax.Array:
+        idx = jnp.arange(self.max_time_size, dtype=self.time_size.dtype)
+        if n_step <= 1:
+            return idx < self.time_size
+
+        valid_count = jnp.maximum(self.time_size - int(n_step) + 1, 1)
+        age_order = (idx - self.ptr) % self.max_time_size
+        full_mask = age_order < valid_count
+        not_full_mask = idx < valid_count
+        is_full = self.size >= self.max_time_size * self.n_envs
+        return jnp.where(is_full, full_mask, not_full_mask)
+
     def _linear_bias_weights(self) -> jax.Array:
         age = (self.current_time - self.timestamps).astype(jnp.float32)
         decay = jnp.array(max(self.linear_decay_steps, 1), dtype=jnp.float32)
@@ -608,8 +687,8 @@ class GPUReplayBuffer:
             return jnp.maximum(min_weight, 1.0 - age / decay)
         return jnp.minimum(1.0, min_weight + age / decay)
 
-    def _biased_time_probabilities(self) -> jax.Array:
-        valid = self._valid_time_mask()
+    def _biased_time_probabilities(self, n_step: int = 1) -> jax.Array:
+        valid = self._valid_start_mask(n_step)
         weights = jnp.where(valid, self._linear_bias_weights(), 0.0)
         weight_sum = jnp.sum(weights)
 
@@ -620,13 +699,20 @@ class GPUReplayBuffer:
         biased_prob = weights / safe_weight_sum
         return jnp.where(weight_sum > 0.0, biased_prob, uniform_prob)
 
-    def _sample_uniform_time_indices(self, key: jax.Array, batch_size: int) -> jax.Array:
-        max_time = jnp.maximum(self.time_size, 1)
-        return jax.random.randint(key, (batch_size,), 0, max_time)
+    def _sample_uniform_time_indices(self, key: jax.Array, batch_size: int, n_step: int) -> jax.Array:
+        if n_step <= 1:
+            max_time = jnp.maximum(self.time_size, 1)
+            return jax.random.randint(key, (batch_size,), 0, max_time)
 
-    def _sample_biased_time_indices(self, key: jax.Array, batch_size: int) -> jax.Array:
+        valid_count = jnp.maximum(self.time_size - int(n_step) + 1, 1)
+        offsets = jax.random.randint(key, (batch_size,), 0, valid_count)
+        full_indices = (self.ptr + offsets) % self.max_time_size
+        is_full = self.size >= self.max_time_size * self.n_envs
+        return jnp.where(is_full, full_indices, offsets)
+
+    def _sample_biased_time_indices(self, key: jax.Array, batch_size: int, n_step: int) -> jax.Array:
         def sample_non_empty(_: jax.Array) -> jax.Array:
-            probabilities = self._biased_time_probabilities()
+            probabilities = self._biased_time_probabilities(n_step)
             return jax.random.choice(
                 key,
                 self.max_time_size,
@@ -643,13 +729,54 @@ class GPUReplayBuffer:
 
     def _sample_time_indices(self, key: jax.Array, batch_size: int) -> jax.Array:
         if self.raw_linear_decay_steps == 0:
-            return self._sample_uniform_time_indices(key, batch_size)
-        return self._sample_biased_time_indices(key, batch_size)
+            return self._sample_uniform_time_indices(key, batch_size, 1)
+        return self._sample_biased_time_indices(key, batch_size, 1)
+
+    def _sample_n_step_time_indices(self, key: jax.Array, batch_size: int, n_step: int) -> jax.Array:
+        if self.raw_linear_decay_steps == 0:
+            return self._sample_uniform_time_indices(key, batch_size, n_step)
+        return self._sample_biased_time_indices(key, batch_size, n_step)
+
+    def _gather_n_step(
+        self,
+        time_idx: jax.Array,
+        env_idx: jax.Array,
+        n_step: int,
+        gamma: float,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+        offsets = jnp.arange(int(n_step), dtype=time_idx.dtype)
+        sequence_idx = (time_idx[:, None] + offsets[None, :]) % self.max_time_size
+        sequence_env_idx = env_idx[:, None]
+
+        rewards = self.rewards[sequence_idx, sequence_env_idx]
+        dones = self.dones[sequence_idx, sequence_env_idx]
+
+        shifted_dones = jnp.concatenate(
+            [jnp.zeros_like(dones[:, :1]), dones[:, :-1]],
+            axis=1,
+        )
+        reward_masks = jnp.cumprod(1.0 - shifted_dones, axis=1)
+        discount_powers = jnp.power(jnp.asarray(gamma, dtype=jnp.float32), offsets.astype(jnp.float32))
+        n_step_rewards = jnp.sum(rewards * reward_masks * discount_powers[None, :], axis=1)
+
+        has_done = dones > 0.0
+        first_done = jnp.argmax(has_done, axis=1)
+        final_offsets = jnp.where(jnp.any(has_done, axis=1), first_done, int(n_step) - 1)
+        final_time_idx = sequence_idx[jnp.arange(time_idx.shape[0]), final_offsets]
+
+        next_observations = _gather_time_env(self.next_observations, final_time_idx, env_idx)
+        final_dones = _gather_time_env(self.dones, final_time_idx, env_idx)
+        effective_n_steps = jnp.sum(reward_masks, axis=1)
+        discounts = jnp.power(jnp.asarray(gamma, dtype=jnp.float32), effective_n_steps)
+
+        return n_step_rewards, final_dones, next_observations, discounts
 
     def sample(
             self,
             key: jax.Array,
-            batch_size: int
+            batch_size: int,
+            n_step: int = 1,
+            gamma: float = 0.99,
         ) -> Batch:
             """Sample a batch of transitions.
 
@@ -659,16 +786,13 @@ class GPUReplayBuffer:
             """
 
             key_t, key_e = jax.random.split(key, 2)
-            time_idx = self._sample_time_indices(key_t, batch_size)
+            time_idx = self._sample_n_step_time_indices(key_t, batch_size, n_step)
             env_idx = jax.random.randint(key_e, (batch_size,), 0, self.n_envs)
 
             observations = _gather_time_env(self.observations, time_idx, env_idx)
-            next_observations = _gather_time_env(
-                self.next_observations, time_idx, env_idx)
-
             actions = _gather_time_env(self.actions, time_idx, env_idx)
-            rewards = _gather_time_env(self.rewards, time_idx, env_idx)
-            dones = _gather_time_env(self.dones, time_idx, env_idx)
+            rewards, dones, next_observations, discounts = self._gather_n_step(
+                time_idx, env_idx, n_step, gamma)
 
             return Batch(
                 observations=observations,
@@ -676,6 +800,7 @@ class GPUReplayBuffer:
                 rewards=rewards[:, None],
                 dones=dones[:, None],
                 next_observations=next_observations,
+                discounts=discounts[:, None],
             )
 
 

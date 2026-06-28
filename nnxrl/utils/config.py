@@ -15,7 +15,8 @@ PROFILE_DEFAULTS = {
         log_frequency=2_001,
         gamma=0.99,
         decay_step=80_000,
-        compute_type='float32'
+        compute_type='float32',
+        n_step=1
     ),
     "playground": dict(
         num_envs=1024,
@@ -28,7 +29,8 @@ PROFILE_DEFAULTS = {
         log_frequency=2_000_000,
         gamma=0.97,
         decay_step=2_000,
-        compute_type='bfloat16'
+        compute_type='bfloat16',
+        n_step=1
     ),
     "maniskill": dict(
         num_envs=1024,
@@ -41,7 +43,8 @@ PROFILE_DEFAULTS = {
         log_frequency=2_000_000,
         gamma=0.9,
         decay_step=2_000,
-        compute_type='bfloat16'
+        compute_type='bfloat16',
+        n_step=1
     ),
     "isaaclab": dict(
         num_envs=1024,
@@ -54,7 +57,8 @@ PROFILE_DEFAULTS = {
         log_frequency=2_000_000,
         gamma=0.97,
         decay_step=2_000,
-        compute_type='bfloat16'
+        compute_type='bfloat16',
+        n_step=3
     ),
 }
 

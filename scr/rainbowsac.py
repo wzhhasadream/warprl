@@ -45,7 +45,8 @@ class Args:
     log_frequency: int | None = None
     gamma: float | None = None
     decay_step: int | None = None
-    compute_type: Literal["float32", "bfloat16"] = None
+    compute_type: Literal["float32", "bfloat16"] | None = None
+    n_step: int | None = None
     #######################################################
 
     policy_frequency: int = 2
@@ -83,6 +84,8 @@ def main():
 
     args = tyro.cli(Args)
     args = resolve_profile(args)
+    if args.n_step is None:
+        args.n_step = 1
     np.random.seed(args.seed)
     compute_type = getattr(jnp, args.compute_type)
 
@@ -208,7 +211,7 @@ def main():
 
         if global_step >= args.learning_starts:
             big_batch = rb.sample(
-                args.batch_size * args.grad_step_per_env_step)
+                args.batch_size * args.grad_step_per_env_step, args.n_step, args.gamma)
             ts, info = jit_update(
                 ts, big_batch, jax.random.fold_in(
                     update_key, global_step)

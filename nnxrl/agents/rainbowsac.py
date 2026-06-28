@@ -50,6 +50,7 @@ class RainbowSACConfig(Protocol):
     asymmetric_obs: bool
     normalize_rewards: bool
     loss_type: str
+    n_step: int
 
 
 @struct.dataclass
@@ -179,7 +180,7 @@ class TrainState:
             ts, info = nnx.cond(
                 rb.size >= config.learning_starts,
                 lambda ts, rb: update_rainbowsac(ts, config, update_key, rb.sample(
-                    sample_key, config.batch_size * config.grad_step_per_env_step)),
+                    sample_key, config.batch_size * config.grad_step_per_env_step, config.n_step, config.gamma)),
                 lambda ts, rb: (ts, zero_info),
                 ts, rb
             )
@@ -255,7 +256,7 @@ def update_critic(
         next_q = target_critic(obs_all, actions_all, training=True)[
             :, config.batch_size:, :]
         min_next_q = jnp.min(next_q, axis=0)
-        target_q = batch.rewards + (1.0 - batch.dones) * config.gamma * (
+        target_q = batch.rewards + (1.0 - batch.dones) * batch.discounts * (
             min_next_q - alpha_value * next_log_pi
         )
         target_q = jax.lax.stop_gradient(target_q)
@@ -271,9 +272,9 @@ def update_critic(
             obs_all, actions_all, training=True
         )[:, config.batch_size:, :]
         next_q_dist = next_q_dist.min(0)
-        target_q_dist = batch.rewards + config.gamma * \
-            (1 - batch.dones) * (next_q_dist -
-                                 alpha_value * next_log_pi)  # (B, num_quantile)
+        target_q_dist = batch.rewards + batch.discounts * (
+            1 - batch.dones
+        ) * (next_q_dist - alpha_value * next_log_pi)
         q_dist = critic(obs_all, actions_all, training=True)[
             :, : config.batch_size, :]
 
@@ -296,7 +297,7 @@ def update_critic(
         )   # (num_head , )
         target_bins = (
             batch.rewards
-            + config.gamma
+            + batch.discounts
             * (1.0 - batch.dones)
             * (bins[None, :] - alpha_value * next_log_pi)
         )
