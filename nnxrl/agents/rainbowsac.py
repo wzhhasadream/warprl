@@ -131,11 +131,9 @@ class TrainState:
     def get_action(self, obs):
         return _get_action(self.actor, obs, self.asymmetric_obs)
 
-    def update_reward_normalizer(self, raw_rewards: jax.Array, done: jax.Array):
-        if self.reward_normalizer is None:
-            return self
+    def update_reward_normalizer(self, raw_rewards: jax.Array, dones: jax.Array):
         return self.replace(
-            reward_normalizer=self.reward_normalizer.update(raw_rewards, done)
+            reward_normalizer=_update_reward_normalizer(self.reward_normalizer, raw_rewards, dones)
         )
 
     def get_exploration_action(
@@ -220,6 +218,17 @@ def _get_exploration_action(
         refresh, sample_truncated_zeta(zeta_key), repeat_n)
     new_repeat_count = jnp.where(refresh, 1, repeat_count + 1)
     return true_action_key, actions, new_repeat_n, new_repeat_count
+
+
+@jax.jit
+def _update_reward_normalizer(
+    reward_normalizer: RewardNormalizer | None,
+    rewards: jax.Array,
+    dones: jax.Array,
+):
+    if reward_normalizer is None:
+        return None
+    return reward_normalizer.update(rewards, dones)
 
 
 def update_critic(

@@ -129,7 +129,6 @@ class RewardNormalizer:
             use_max_bound=use_max_bound,
         )
 
-    @jax.jit
     def update(self, rewards: jax.Array, dones: jax.Array) -> "RewardNormalizer":
         """Update discounted-return statistics from one environment step."""
         rewards = jnp.asarray(rewards, dtype=jnp.float32).reshape(self.g.shape)
@@ -149,7 +148,6 @@ class RewardNormalizer:
         else:
             return var_denominator
 
-    @jax.jit
     def normalize(self, rewards: jax.Array) -> jax.Array:
         """Scale rewards using current discounted-return statistics."""
         rewards = jnp.asarray(rewards, dtype=jnp.float32)
@@ -160,7 +158,6 @@ class RewardNormalizer:
 
         return rewards / denominator
 
-    @jax.jit
     def update_and_normalize(
         self,
         rewards: jax.Array,
