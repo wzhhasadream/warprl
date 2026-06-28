@@ -45,6 +45,7 @@ class Args:
     log_frequency: int | None = None
     gamma: float | None = None
     decay_step: int | None = None
+    compute_type: Literal["float32", "bfloat16"] = None
     #######################################################
 
     policy_frequency: int = 2
@@ -67,7 +68,6 @@ class Args:
     use_bias: Literal[True, False] = False
     record_video: Literal[True, False] = True
     save_agent: Literal[True, False] = False
-    compute_type: Literal["float32", "bfloat16"] = "float32"
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "final"
     action_repeat: int = 1
