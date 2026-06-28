@@ -2,6 +2,7 @@ from typing import Callable, Any
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from flax.typing import Dtype
 
 
 def orthogonal(scale: jax.Array = jnp.sqrt(2)):
@@ -181,9 +182,9 @@ class SimBaEncoder(nnx.Module):
 
 # Adapted from FlashSac: https: // github.com/Holiday-Robot/FlashSAC/blob/main/flash_rl/agents/flashSAC/layer.py
 class FlashSACEmbedder(nnx.Module):
-    def __init__(self, input_dim: int, hidden_dim: int, rngs: nnx.Rngs, use_bias: bool = True):
-        self.norm = nnx.BatchNorm(num_features=input_dim, rngs=rngs)
-        self.w = nnx.Linear(input_dim, hidden_dim, rngs=rngs, kernel_init=orthogonal(1), use_bias=use_bias)
+    def __init__(self, input_dim: int, hidden_dim: int, rngs: nnx.Rngs, use_bias: bool = True, compute_dtype: Dtype = jnp.float32):
+        self.norm = nnx.BatchNorm(num_features=input_dim, rngs=rngs, dtype=compute_dtype)
+        self.w = nnx.Linear(input_dim, hidden_dim, rngs=rngs, kernel_init=orthogonal(1), use_bias=use_bias, dtype = compute_dtype)
 
     def __call__(self, x: jax.Array, training: bool):
         x = self.norm(x, use_running_average=not training)
@@ -197,7 +198,8 @@ class FlashSACBlock(nnx.Module):
         hidden_dim: int,
         rngs: nnx.Rngs,
         expansion: int = 4,
-        use_bias: bool = True
+        use_bias: bool = True,
+        compute_dtype: Dtype = jnp.float32
     ):
         self.w1 = nnx.Linear(
             hidden_dim,
@@ -205,6 +207,7 @@ class FlashSACBlock(nnx.Module):
             rngs=rngs,
             kernel_init=orthogonal(1),
             use_bias=use_bias,
+            dtype=compute_dtype
         )
         self.w2 = nnx.Linear(
             hidden_dim * expansion,
@@ -212,14 +215,17 @@ class FlashSACBlock(nnx.Module):
             rngs=rngs,
             kernel_init=orthogonal(1),
             use_bias=use_bias,
+            dtype=compute_dtype
         )
         self.norm1 = nnx.BatchNorm(
             num_features=hidden_dim * expansion,
             rngs=rngs,
+            dtype=compute_dtype
         )
         self.norm2 = nnx.BatchNorm(
             num_features=hidden_dim,
             rngs=rngs,
+            dtype=compute_dtype
         )
 
 
@@ -242,11 +248,12 @@ class Encoder(nnx.Module):
                 num_blocks: int,
                 hidden_dim: int,
                 rngs: nnx.Rngs,
-                use_bias: bool = True):
-        self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs, use_bias)
-        self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias)
+                use_bias: bool = True,
+                compute_type: Dtype = jnp.float32):
+        self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs, use_bias, compute_type)
+        self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias, compute_type)
                        for _ in range(num_blocks)]
-        self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs)
+        self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs, dtype=compute_type)
 
     def __call__(self, x: jax.Array, training: bool):
         x = self.embed(x, training=training)

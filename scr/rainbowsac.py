@@ -23,7 +23,7 @@ import jax
 from optax import adam, cosine_decay_schedule
 import tyro
 import dataclasses
-
+import jax.numpy as jnp
 @dataclasses.dataclass
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'playground'] = "auto"
@@ -67,6 +67,7 @@ class Args:
     use_bias: Literal[True, False] = False
     record_video: Literal[True, False] = True
     save_agent: Literal[True, False] = False
+    compute_type: Literal['float32', 'bfloat16'] = 'float32'
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "final"
     action_repeat: int = 1
@@ -83,6 +84,7 @@ def main():
     args = tyro.cli(Args)
     args = resolve_profile(args)
     np.random.seed(args.seed)
+    compute_type = getattr(jnp, args.compute_type)
 
     num_critic_updates = int(args.total_timesteps / args.num_envs * args.grad_step_per_env_step)
 
@@ -120,7 +122,8 @@ def main():
             num_blocks=args.actor_num_blocks,
             action_high=envs.single_action_space.high,
             action_low=envs.single_action_space.low,
-            use_bias=args.use_bias
+            use_bias=args.use_bias,
+            compute_type=compute_type
         )
     critic = FlashSACDoubleCritic(
         obs_dim,
@@ -129,7 +132,8 @@ def main():
         hidden_dim=args.critic_hidden_dim,
         num_blocks=args.critic_num_blocks,
         num_head=args.num_head,
-        use_bias=args.use_bias
+        use_bias=args.use_bias,
+        compute_type=compute_type
     )
     if args.normalize_parameters:
         project_param(critic)

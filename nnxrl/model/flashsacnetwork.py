@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-
+from flax.typing import Dtype
 from .layer import orthogonal, Encoder
 from .policy import (
     SquashedTanhGaussianPolicy,
@@ -24,7 +24,8 @@ class FlashSACActor(nnx.Module):
         log_std_min: float = -10.0,
         log_std_max: float = 2.0,
         squash_log_std: bool = True,
-        use_bias: bool = True
+        use_bias: bool = True,
+        compute_type: Dtype = jnp.float32
     ):
         self.obs_dim = flattened_dim(obs_dim)
         self.action_dim = action_dim
@@ -33,19 +34,22 @@ class FlashSACActor(nnx.Module):
         self.action_scale, self.action_bias = action_scale_bias(
             self.action_low, self.action_high
         )
+        self.compute_type = compute_type
 
-        self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias)
+        self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, compute_type=compute_type)
         self.fc_mean = nnx.Linear(
             hidden_dim,
             action_dim,
             rngs=rngs,
             kernel_init=orthogonal(1),
+            dtype=compute_type
         )
         self.fc_log_std = nnx.Linear(
             hidden_dim,
             action_dim,
             rngs=rngs,
             kernel_init=orthogonal(1),
+            dtype=compute_type
         )
         self.policy = SquashedTanhGaussianPolicy(
             action_low=self.action_low,
@@ -61,10 +65,11 @@ class FlashSACActor(nnx.Module):
         observations: jax.Array,
         training: bool = True,
     ) -> tuple[jax.Array, jax.Array]:
+        observations = observations.astype(self.compute_type)
         x = self.encoder(observations, training=training)
         mean = self.fc_mean(x)
         log_std = self.fc_log_std(x)
-        return mean, log_std
+        return mean.astype(jnp.float32), log_std.astype(jnp.float32)
 
     def get_action(
         self,
@@ -78,9 +83,10 @@ class FlashSACActor(nnx.Module):
         return action, log_prob[:, None]
 
     def get_mean_action(self, observations: jax.Array) -> jax.Array:
+        observations = observations.astype(self.compute_type)
         x = self.encoder(observations, training=False)
         mean = self.fc_mean(x)
-        return jnp.tanh(mean) * self.action_scale + self.action_bias
+        return (jnp.tanh(mean) * self.action_scale + self.action_bias).astype(jnp.float32)
 
 
     def get_mean_std(self, observations: jax.Array):
@@ -152,18 +158,21 @@ class FlashSACQNetwork(nnx.Module):
         hidden_dim: int = 256,
         num_blocks: int = 2,
         num_head: int = 1,
-        use_bias: bool = True
+        use_bias: bool = True,
+        compute_type: Dtype = jnp.float32
     ):
         self.obs_dim = flattened_dim(obs_dim)
         self.action_dim = action_dim
         self.encoder = Encoder(
-            self.obs_dim + self.action_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias)
+            self.obs_dim + self.action_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, compute_type=compute_type)
         self.out = nnx.Linear(
             hidden_dim,
             num_head,
             rngs=rngs,
             kernel_init=orthogonal(1),
+            dtype=compute_type
         )
+        self.compute_type = compute_type
 
     def __call__(
         self,
@@ -172,15 +181,16 @@ class FlashSACQNetwork(nnx.Module):
         training: bool = True,
     ) -> jax.Array:
         x = jnp.concatenate((observations, actions), axis=-1)
+        x = x.astype(self.compute_type)
         x = self.encoder(x, training=training)
-        return self.out(x)
+        return self.out(x).astype(jnp.float32)
 
 
 
 class FlashSACDoubleCritic(nnx.Module):
     """Ensembled scalar critic for FlashSAC-style training."""
 
-    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None), out_axes=0)
+    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None, None), out_axes=0)
     def __init__(
         self,
         obs_dim: int | tuple[int, ...],
@@ -189,7 +199,8 @@ class FlashSACDoubleCritic(nnx.Module):
         hidden_dim: int = 256,
         num_blocks: int = 2,
         num_head: int = 1,
-        use_bias: bool = True
+        use_bias: bool = True,
+        compute_type: Dtype = jnp.float32
     ):
         self.critic = FlashSACQNetwork(
             obs_dim=obs_dim,
@@ -198,7 +209,8 @@ class FlashSACDoubleCritic(nnx.Module):
             hidden_dim=hidden_dim,
             num_blocks=num_blocks,
             num_head=num_head,
-            use_bias=use_bias
+            use_bias=use_bias,
+            compute_type=compute_type
         )
 
     @nnx.vmap(in_axes=(0, None, None, None), out_axes=0)
