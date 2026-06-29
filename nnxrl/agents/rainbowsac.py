@@ -12,6 +12,7 @@ from ..model import (
     project_param)
 from ..utils import (
     Batch,
+    Transition,
     GPUReplayBuffer,
     select_actor_observations,
     load_states,
@@ -156,16 +157,17 @@ class TrainState:
 
     def make_train_step(self, config: RainbowSACConfig):
         @nnx.jit(donate_argnums=(0, 1))
-        def train_step(ts: TrainState, rb: GPUReplayBuffer, transition: dict, key: jax.Array):
+        def train_step(ts: TrainState, rb: GPUReplayBuffer, transition: Transition, key: jax.Array):
             if ts.reward_normalizer is not None and config.normalize_rewards:
                 ts = ts.update_reward_normalizer(
-                    transition["rewards"], jnp.logical_or(transition["terminations"], transition["truncations"]))
+                    transition.rewards, jnp.logical_or(transition.terminations, transition.truncations))
             rb = rb.add(
-                transition["observations"],
-                transition["actions"],
-                transition["rewards"],
-                transition["next_observations"],
-                transition["terminations"],
+                transition.observations,
+                transition.actions,
+                transition.rewards,
+                transition.next_observations,
+                transition.terminations,
+                transition.truncations,
             )
             zeros = jnp.array(0.0)
             zero_info = {

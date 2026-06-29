@@ -164,6 +164,7 @@ class TrainState:
                 transition["rewards"],
                 transition["next_observations"],
                 transition["terminations"],
+                transition["truncations"],
             )
             zeros = jnp.array(0.0)
             zero_info = {

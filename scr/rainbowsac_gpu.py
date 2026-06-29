@@ -16,7 +16,8 @@ from nnxrl.utils import (
     replace_done_next_obs,
     RewardNormalizer,
     resolve_profile,
-    record_video
+    record_video,
+    Transition
 )
 import numpy as np
 import jax
@@ -198,7 +199,7 @@ def main():
         dones = np.logical_or(terminations, truncations)
         real_next_obs = replace_done_next_obs(next_obs, dones, infos)
 
-        transition = dict(
+        transition = Transition(
             observations=obs,
             actions=actions,
             rewards=rewards,

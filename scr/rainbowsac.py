@@ -208,6 +208,7 @@ def main():
             rewards,
             real_next_obs,
             terminations,
+            truncations,
         )
 
         if global_step >= args.learning_starts:

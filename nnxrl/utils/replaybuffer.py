@@ -58,15 +58,24 @@ def get_obs_shape(
         raise NotImplementedError(f"{observation_space} observation space is not supported")
 
 
-ObsTree = jax.Array
 
 class Batch(NamedTuple):
-    observations: ObsTree
+    observations: jax.Array
     actions: jax.Array
     rewards: jax.Array
     dones: jax.Array
-    next_observations: ObsTree
+    next_observations: jax.Array
     discounts: jax.Array
+
+
+class Transition(NamedTuple):
+    observations: jax.Array | np.ndarray
+    actions: jax.Array | np.ndarray
+    rewards: jax.Array | np.ndarray
+    truncations: jax.Array | np.ndarray
+    terminations: jax.Array | np.ndarray
+    next_observations: jax.Array | np.ndarray
+
 
 
 
@@ -173,7 +182,8 @@ class ReplayBuffer:
         self.observations = np.zeros((self.max_time_size, self.n_envs, *self.obs_shape), dtype=obs_shape_space.dtype)
         self.actions = np.zeros((self.max_time_size, self.n_envs, *self.action_shape), dtype=action_shape_space.dtype)
         self.rewards = np.zeros((self.max_time_size, self.n_envs), dtype=np.float32)
-        self.dones = np.zeros((self.max_time_size, self.n_envs), dtype=np.float32)
+        self.terminations = np.zeros((self.max_time_size, self.n_envs), dtype=np.float32)
+        self.truncations = np.zeros((self.max_time_size, self.n_envs), dtype=np.float32)
         if linear_decay_steps != 0:
             self.timestamps = np.zeros(self.max_time_size, dtype=np.int64)  # Track when each time slot was added
             self.current_time = 0
@@ -212,11 +222,8 @@ class ReplayBuffer:
         )
 
     def add(self, obs: np.ndarray, action: np.ndarray, reward: float | np.ndarray,
-            next_obs: np.ndarray, done: bool | np.ndarray, truncations: None | np.ndarray = None):
+            next_obs: np.ndarray, terminations: bool | np.ndarray, truncations: bool | np.ndarray):
         """Add transition(s) to the buffer. Supports both single and multi-env."""
-        if self.optimize_memory_usage:
-            assert truncations is not None, "truncations must be provided when optimize_memory_usage is True"
-
         self.observations[self.ptr] = obs.reshape(self.n_envs, *self.obs_shape)
         self.actions[self.ptr] = action.reshape(self.n_envs, *self.action_shape)
         if not self.optimize_memory_usage:
@@ -233,7 +240,8 @@ class ReplayBuffer:
                     self.truncated_next_obs[self.ptr][env_idx] = reshaped_next_obs[env_idx].copy()
                     
         self.rewards[self.ptr] = np.asarray(reward, dtype=np.float32).reshape(self.n_envs)
-        self.dones[self.ptr] = np.asarray(done, dtype=np.float32).reshape(self.n_envs)
+        self.terminations[self.ptr] = np.asarray(terminations, dtype=np.float32).reshape(self.n_envs)
+        self.truncations[self.ptr] = np.asarray(truncations, dtype=np.float32).reshape(self.n_envs)
         if self.linear_decay_steps != 0:
             self.timestamps[self.ptr] = self.current_time
             self.current_time += 1
@@ -297,7 +305,7 @@ class ReplayBuffer:
         n_step: int,
         gamma: float,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Build n-step rewards, final dones, final next observations, and discounts."""
+        """Build n-step rewards, final terminations, final next observations, and discounts."""
         if self.optimize_memory_usage and int(n_step) > 1:
             raise NotImplementedError("n-step sampling is not supported with optimize_memory_usage=True")
 
@@ -306,22 +314,24 @@ class ReplayBuffer:
         sequence_indices = (batch_index[:, None] + offsets[None, :]) % self.max_time_size
 
         rewards = self.rewards[sequence_indices, env_index[:, None]]
-        dones = self.dones[sequence_indices, env_index[:, None]]
+        terminations = self.terminations[sequence_indices, env_index[:, None]]
+        truncations = self.truncations[sequence_indices, env_index[:, None]]
+        episode_ends = np.logical_or(terminations > 0, truncations > 0).astype(np.float32)
 
-        shifted_dones = np.concatenate(
-            [np.zeros_like(dones[:, :1]), dones[:, :-1]],
+        shifted_episode_ends = np.concatenate(
+            [np.zeros_like(episode_ends[:, :1]), episode_ends[:, :-1]],
             axis=1,
         )
-        reward_masks = np.cumprod(1.0 - shifted_dones, axis=1)
+        reward_masks = np.cumprod(1.0 - shifted_episode_ends, axis=1)
         discount_powers = (np.float32(gamma) ** offsets).astype(np.float32)
         n_step_rewards = np.sum(rewards * reward_masks * discount_powers[None, :], axis=1)
 
-        has_done = dones > 0
-        first_done = np.argmax(has_done, axis=1)
-        final_offsets = np.where(np.any(has_done, axis=1), first_done, n_step - 1)
+        has_episode_end = episode_ends > 0
+        first_episode_end = np.argmax(has_episode_end, axis=1)
+        final_offsets = np.where(np.any(has_episode_end, axis=1), first_episode_end, n_step - 1)
         final_indices = sequence_indices[np.arange(len(batch_index)), final_offsets]
 
-        final_dones = self.dones[final_indices, env_index]
+        final_dones = self.terminations[final_indices, env_index]
         final_next_obs = self._next_obs_at(final_indices, env_index)
         effective_n_steps = np.sum(reward_masks, axis=1)
         discounts = (np.float32(gamma) ** effective_n_steps).astype(np.float32)
@@ -481,7 +491,8 @@ class GPUReplayBuffer:
     observations: jax.Array
     actions: jax.Array
     rewards: jax.Array
-    dones: jax.Array
+    terminations: jax.Array
+    truncations: jax.Array
     next_observations: jax.Array
     ptr: jax.Array
     time_size: jax.Array
@@ -550,7 +561,8 @@ class GPUReplayBuffer:
         actions = jnp.zeros(
             (max_time_size, n_envs, *action_shape), dtype=action_dtype)
         rewards = jnp.zeros((max_time_size, n_envs), dtype=jnp.float32)
-        dones = jnp.zeros((max_time_size, n_envs), dtype=jnp.float32)
+        terminations = jnp.zeros((max_time_size, n_envs), dtype=jnp.float32)
+        truncations = jnp.zeros((max_time_size, n_envs), dtype=jnp.float32)
 
         ptr = jnp.array(0, dtype=jnp.int32)
         time_size = jnp.array(0, dtype=jnp.int32)
@@ -562,7 +574,8 @@ class GPUReplayBuffer:
             observations=observations,
             actions=actions,
             rewards=rewards,
-            dones=dones,
+            terminations=terminations,
+            truncations=truncations,
             next_observations=next_observations,
             ptr=ptr,
             time_size=time_size,
@@ -611,7 +624,8 @@ class GPUReplayBuffer:
             action: jax.Array | np.ndarray,
             reward: jax.Array | np.ndarray,
             next_obs: jax.Array | np.ndarray,
-            done: jax.Array | np.ndarray,
+            terminations: jax.Array | np.ndarray,
+            truncations: jax.Array | np.ndarray,
     ) -> 'GPUReplayBuffer':
         """Add one transition for each env (vectorized) in a JIT-compatible way."""
         obs_arr = _reshape_obs_leaf(
@@ -625,11 +639,13 @@ class GPUReplayBuffer:
         action_arr = _reshape_action(
             action, self.action_shape, self.n_envs, self.action_dtype)
         reward_arr = _reshape_scalar_vec(reward, self.n_envs, jnp.float32)
-        done_arr = _reshape_scalar_vec(done, self.n_envs, jnp.float32)
+        termination_arr = _reshape_scalar_vec(terminations, self.n_envs, jnp.float32)
+        truncation_arr = _reshape_scalar_vec(truncations, self.n_envs, jnp.float32)
 
         new_actions = self.actions.at[self.ptr].set(action_arr)
         new_rewards = self.rewards.at[self.ptr].set(reward_arr)
-        new_dones = self.dones.at[self.ptr].set(done_arr)
+        new_terminations = self.terminations.at[self.ptr].set(termination_arr)
+        new_truncations = self.truncations.at[self.ptr].set(truncation_arr)
 
         bias_enabled = self.raw_linear_decay_steps != 0
         new_timestamps = jax.lax.cond(
@@ -653,7 +669,8 @@ class GPUReplayBuffer:
             observations=new_observations,
             actions=new_actions,
             rewards=new_rewards,
-            dones=new_dones,
+            terminations=new_terminations,
+            truncations=new_truncations,
             next_observations=new_next_observations,
             ptr=new_ptr,
             time_size=new_time_size,
@@ -749,23 +766,25 @@ class GPUReplayBuffer:
         sequence_env_idx = env_idx[:, None]
 
         rewards = self.rewards[sequence_idx, sequence_env_idx]
-        dones = self.dones[sequence_idx, sequence_env_idx]
+        terminations = self.terminations[sequence_idx, sequence_env_idx]
+        truncations = self.truncations[sequence_idx, sequence_env_idx]
+        episode_ends = jnp.logical_or(terminations > 0.0, truncations > 0.0).astype(jnp.float32)
 
-        shifted_dones = jnp.concatenate(
-            [jnp.zeros_like(dones[:, :1]), dones[:, :-1]],
+        shifted_episode_ends = jnp.concatenate(
+            [jnp.zeros_like(episode_ends[:, :1]), episode_ends[:, :-1]],
             axis=1,
         )
-        reward_masks = jnp.cumprod(1.0 - shifted_dones, axis=1)
+        reward_masks = jnp.cumprod(1.0 - shifted_episode_ends, axis=1)
         discount_powers = jnp.power(jnp.asarray(gamma, dtype=jnp.float32), offsets.astype(jnp.float32))
         n_step_rewards = jnp.sum(rewards * reward_masks * discount_powers[None, :], axis=1)
 
-        has_done = dones > 0.0
-        first_done = jnp.argmax(has_done, axis=1)
-        final_offsets = jnp.where(jnp.any(has_done, axis=1), first_done, int(n_step) - 1)
+        has_episode_end = episode_ends > 0.0
+        first_episode_end = jnp.argmax(has_episode_end, axis=1)
+        final_offsets = jnp.where(jnp.any(has_episode_end, axis=1), first_episode_end, int(n_step) - 1)
         final_time_idx = sequence_idx[jnp.arange(time_idx.shape[0]), final_offsets]
 
         next_observations = _gather_time_env(self.next_observations, final_time_idx, env_idx)
-        final_dones = _gather_time_env(self.dones, final_time_idx, env_idx)
+        final_dones = _gather_time_env(self.terminations, final_time_idx, env_idx)
         effective_n_steps = jnp.sum(reward_masks, axis=1)
         discounts = jnp.power(jnp.asarray(gamma, dtype=jnp.float32), effective_n_steps)
 
