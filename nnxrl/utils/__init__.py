@@ -1,4 +1,9 @@
-from .replaybuffer import JAXReplayBuffer, Batch, ReplayBuffer, GPUReplayBuffer
+from .replaybuffer import (
+    JAXReplayBuffer, 
+    Batch, 
+    ReplayBuffer, 
+    GPUReplayBuffer, 
+    Transition)
 from .checkpoint import load_states, save_states
 from .evaluate import evaluate_policy, record_video
 from .normalization import RMS, RewardNormalizer
