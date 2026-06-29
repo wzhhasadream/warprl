@@ -199,7 +199,8 @@ def main():
                 rewards, dones
             )
 
-        real_next_obs = replace_done_next_obs(next_obs, dones, infos)
+        mask = truncations if args.env_type == 'myosuite' else dones
+        real_next_obs = replace_done_next_obs(next_obs, mask, infos)
 
         rb.add(
             obs,
