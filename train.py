@@ -15,7 +15,7 @@ import dataclasses
 
 @dataclasses.dataclass
 class Args:
-    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'playground'] = "auto"
+    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab'] = "auto"
 
     env_id: str = "PickSingleYCB-v1"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
@@ -46,7 +46,6 @@ class Args:
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
     end_lr: float = 1.5e-4
-    target_entropy: float = 0  # will be set automatically
     critic_hidden_dim: int = 256
     critic_num_blocks: int = 2
     actor_hidden_dim: int = 128
@@ -55,17 +54,12 @@ class Args:
     num_head: int = 101
     normalize_parameters: Literal[True, False] = True
     normalize_rewards: Literal[True, False] = True
-    asymmetric_obs: Literal[True, False] = False   # will be set automatically
     use_bias: Literal[True, False] = False
     record_video: Literal[True, False] = False
     save_agent: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "final"
     action_repeat: int = 1
-    coupled_flow: Literal[True, False] = False 
-    num_ode: int = 1
-    num_step: int = 1
-
 
 
 def main():
@@ -76,10 +70,12 @@ def main():
     args = resolve_profile(args)
     np.random.seed(args.seed)
 
-    envs, eval_envs, record_envs = create_envs(
+    wandb.init(project="nnxrl", name=args.log_path, config=vars(args))
+
+    train_envs, eval_envs, record_envs = create_envs(
         args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
 
-    agent = RainbowSACAgent(envs, args)
+    agent = RainbowSACAgent(train_envs, args)
 
     def eval_and_log(agent, global_step):
         def policy(obs):
@@ -92,16 +88,16 @@ def main():
         if args.save_agent:
             wandb.save_agent(agent, global_step)
 
-
+    obs, info = train_envs.reset(seed=args.seed)
     for global_step in range(0, args.total_timesteps, args.num_envs):
         if global_step % args.eval_frequency < args.num_envs:
             eval_and_log(agent, global_step)
-        if agent.can_update:
-            actions = envs.action_space.sample()
+        if not agent.can_update:
+            actions = train_envs.action_space.sample()
         else:
-            actions = agent.get_action(obs)
+            actions = agent.get_exploration_action(obs)
 
-        next_obs, rewards, terminations, truncations, infos = envs.step(
+        next_obs, rewards, terminations, truncations, infos = train_envs.step(
             actions)
 
         dones = np.logical_or(terminations, truncations)
@@ -126,10 +122,12 @@ def main():
 
         obs = next_obs
 
-    envs.close()
     eval_and_log(agent, args.total_timesteps)
-    eval_envs.close()
-    record_envs.close()
+    train_envs.close()
+    if eval_envs is not train_envs:
+        eval_envs.close()
+    if record_envs is not train_envs and record_envs is not eval_envs:
+        record_envs.close()
     wandb.finish()
 
 
