@@ -38,6 +38,7 @@ class RainbowSACAgent:
         self.actor_observation_dim = int(
             np.prod(np.asarray(self.observation_space.shape)))
         self.asymmetric_obs = getattr(envs, 'asymmetric_obs', False)
+        setattr(self.cfg, "asymmetric_obs", self.asymmetric_obs)
         setattr(self.cfg, "target_entropy", 0.5 * self.action_dim * np.log(2 * np.pi * np.e * 0.15**2))
         if self.asymmetric_obs:
             self.actor_observation_dim = envs.actor_observation_size
@@ -86,10 +87,10 @@ class RainbowSACAgent:
             observation_space=self.observation_space,
             buffer_type=getattr(self.cfg, "buffer_type", "numpy"),
             num_env=self.num_envs,
-            max_size=getattr(self.cfg, "buffer_size"),
+            max_size=getattr(self.cfg, "buffer_size", 512),
             linear_decay_step=getattr(self.cfg, "decay_step", 0),
             n_step=getattr(self.cfg, "n_step", 1),
-            gamma=getattr(self.cfg, "gamma"),
+            gamma=getattr(self.cfg, "gamma", 0.99),
             use_approximate_sampling=getattr(self.cfg, "env_type", "mujoco") in CPU_SIM,
         )
 

@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Any
 
 import jax
@@ -317,7 +318,7 @@ class JaxBuffer:
             return self._sample_approx_biased_indices(key, batch_size)
         return self._sample_exact_biased_indices(key, batch_size)
         
-    @jax.jit
+    @partial(jax.jit, static_argnames=("batch_size",))
     def sample(self, key: jax.Array, batch_size: int) -> Batch:
         indices = self._sample_indices(key, batch_size)
 
