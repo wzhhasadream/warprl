@@ -139,7 +139,7 @@ class JaxBuffer:
             use_approximate_sampling=bool(use_approximate_sampling),
             num_buckets=int(num_buckets),
         )
-    @jax.jit
+    @partial(jax.jit , donate_argnums=0)
     def add(self, transition: Transition) -> "JaxBuffer":
         observations = _reshape_obs(transition.observations, self.n_envs, self.obs_shape, self.obs_dtype)
         actions = _reshape_action(transition.actions, self.n_envs, self.action_shape, self.action_dtype)
