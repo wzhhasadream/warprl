@@ -38,6 +38,7 @@ class RainbowSACAgent:
         self.actor_observation_dim = int(
             np.prod(np.asarray(self.observation_space.shape)))
         self.asymmetric_obs = getattr(envs, 'asymmetric_obs', False)
+        setattr(self.cfg, "target_entropy", 0.5 * self.action_dim * np.log(2 * np.pi * np.e * 0.15**2))
         if self.asymmetric_obs:
             self.actor_observation_dim = envs.actor_observation_size
 
