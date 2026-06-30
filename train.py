@@ -70,7 +70,7 @@ def main():
     args = resolve_profile(args)
     np.random.seed(args.seed)
 
-    wandb.init(project="nnxrl", name=args.log_path, config=vars(args))
+    wandb.init(project=args.log_path, name=f"{args.env_id}", config=vars(args))
 
     train_envs, eval_envs, record_envs = create_envs(
         args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
