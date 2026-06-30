@@ -11,9 +11,6 @@ from ..model import (
     soft_update,
     project_param)
 from ..utils import (
-    Batch,
-    Transition,
-    GPUReplayBuffer,
     select_actor_observations,
     load_states,
     save_states,
@@ -25,8 +22,8 @@ from ..utils import (
     categorical_projection,
     categorical_ce_loss,
     sample_truncated_zeta)
-
-
+from nnxrl.buffer import Batch, Transition
+from nnxrl.buffer.jax_buffer import JaxBuffer
 class RainbowSACConfig(Protocol):
     seed: int
     total_timesteps: int
@@ -157,18 +154,11 @@ class TrainState:
 
     def make_train_step(self, config: RainbowSACConfig):
         @nnx.jit(donate_argnums=(0, 1))
-        def train_step(ts: TrainState, rb: GPUReplayBuffer, transition: Transition, key: jax.Array):
+        def train_step(ts: TrainState, rb: JaxBuffer, transition: Transition, key: jax.Array):
             if ts.reward_normalizer is not None and config.normalize_rewards:
                 ts = ts.update_reward_normalizer(
                     transition.rewards, jnp.logical_or(transition.terminations, transition.truncations))
-            rb = rb.add(
-                transition.observations,
-                transition.actions,
-                transition.rewards,
-                transition.next_observations,
-                transition.terminations,
-                transition.truncations,
-            )
+            rb = rb.add(transition)
             zeros = jnp.array(0.0)
             zero_info = {
                 "training/q_loss": zeros,
@@ -182,7 +172,7 @@ class TrainState:
             ts, info = nnx.cond(
                 rb.size >= config.learning_starts,
                 lambda ts, rb: update_rainbowsac(ts, config, update_key, rb.sample(
-                    sample_key, config.batch_size * config.grad_step_per_env_step, config.n_step, config.gamma)),
+                    sample_key, config.batch_size * config.grad_step_per_env_step)),
                 lambda ts, rb: (ts, zero_info),
                 ts, rb
             )

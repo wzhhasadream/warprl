@@ -11,13 +11,14 @@ from nnxrl.model import (
 )
 from nnxrl.env import create_envs, CPU_SIM
 from nnxrl.utils import (
-    ReplayBuffer, 
     evaluate_policy, 
     replace_done_next_obs, 
     RewardNormalizer, 
     resolve_profile, 
     record_video
 )
+from nnxrl.buffer.numpy_buffer import NumpyBuffer
+from nnxrl.buffer import Transition
 import numpy as np
 import jax
 from optax import adam, cosine_decay_schedule
@@ -151,12 +152,14 @@ def main():
         else None
     )
     use_approximate_sampling = True if args.env_type in CPU_SIM else False
-    rb = ReplayBuffer(
+    rb = NumpyBuffer(
         envs.single_observation_space,
         envs.single_action_space,
         args.buffer_size,
+        n_step=args.n_step,
+        gamma=args.gamma,
         n_envs=args.num_envs,
-        linear_decay_steps=args.decay_step,
+        linear_decay_step=args.decay_step,
         use_approximate_sampling=use_approximate_sampling
     )
 
@@ -203,17 +206,19 @@ def main():
         real_next_obs = replace_done_next_obs(next_obs, mask, infos)
 
         rb.add(
-            obs,
-            actions,
-            rewards,
-            real_next_obs,
-            terminations,
-            truncations,
+            Transition(
+                observations=obs,
+                actions=actions,
+                rewards=rewards,
+                next_observations=real_next_obs,
+                terminations=terminations,
+                truncations=truncations,
+            )
         )
 
         if global_step >= args.learning_starts:
             big_batch = rb.sample(
-                args.batch_size * args.grad_step_per_env_step, args.n_step, args.gamma)
+                args.batch_size * args.grad_step_per_env_step)
             ts, info = jit_update(
                 ts, big_batch, jax.random.fold_in(
                     update_key, global_step)

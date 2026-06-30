@@ -11,20 +11,20 @@ from nnxrl.model import (
 )
 from nnxrl.env import create_envs
 from nnxrl.utils import (
-    GPUReplayBuffer,
     evaluate_policy,
     replace_done_next_obs,
     RewardNormalizer,
     resolve_profile,
-    record_video,
-    Transition
+    record_video
 )
+from nnxrl.buffer import Transition
 import numpy as np
 import jax
 from optax import adam, cosine_decay_schedule
 import tyro
 import dataclasses
 import jax.numpy as jnp
+from nnxrl.buffer.jax_buffer import JaxBuffer
 
 @dataclasses.dataclass
 class Args:
@@ -155,12 +155,15 @@ def main():
         else None
     )
 
-    rb = GPUReplayBuffer.create(
+    rb = JaxBuffer.create(
         envs.single_observation_space,
         envs.single_action_space,
         args.buffer_size,
+        gamma=args.gamma,
+        n_step=args.n_step,
         n_envs=args.num_envs,
-        linear_decay_steps=args.decay_step
+        linear_decay_step=args.decay_step,
+        use_approximate_sampling=False
     )
 
     ts = TrainState.create(actor, critic, actor_opt,
