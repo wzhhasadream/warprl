@@ -60,15 +60,15 @@ def get_obs_shape(
 class BaseBuffer(ABC):
     def __init__(
         self,
-        obs_shape_space: spaces.Space,
+        observation_space: spaces.Space,
         action_shape_space: spaces.Space,
         max_size: int = int(1e6),
     ):
         self.max_size = max_size
         self.action_space = action_shape_space
-        self.obsveration_space = obs_shape_space
+        self.obsveration_space = observation_space
         # Extract shapes from spaces
-        obsveration_shape = get_obs_shape(obs_shape_space)
+        obsveration_shape = get_obs_shape(observation_space)
         action_dim = get_action_dim(action_shape_space)
 
         # Handle both int and tuple for obs_shape
@@ -103,4 +103,3 @@ class BaseBuffer(ABC):
     @abstractmethod
     def save(self, path: str) -> None:
         pass
-

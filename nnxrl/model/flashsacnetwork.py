@@ -7,7 +7,6 @@ from .policy import (
     SquashedTanhGaussianPolicy,
     action_scale_bias,
     flattened_dim,
-    TanhDeterministicPolicy
 )
 
 
@@ -29,11 +28,13 @@ class FlashSACActor(nnx.Module):
     ):
         self.obs_dim = flattened_dim(obs_dim)
         self.action_dim = action_dim
-        self.action_low = jnp.asarray(action_low)
-        self.action_high = jnp.asarray(action_high)
-        self.action_scale, self.action_bias = action_scale_bias(
-            self.action_low, self.action_high
-        )
+        action_low = jnp.asarray(action_low)
+        action_high = jnp.asarray(action_high)
+        action_scale, action_bias = action_scale_bias(action_low, action_high)
+        self.action_low = nnx.Variable(action_low)
+        self.action_high = nnx.Variable(action_high)
+        self.action_scale = nnx.Variable(action_scale)
+        self.action_bias = nnx.Variable(action_bias)
         self.compute_type = compute_type
 
         self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, compute_type=compute_type)
@@ -97,56 +98,6 @@ class FlashSACActor(nnx.Module):
 
 
 
-class FlashSACTanhDetActor(nnx.Module):
-    def __init__(
-        self,
-        obs_dim: int | tuple[int, ...],
-        action_dim: int,
-        rngs: nnx.Rngs,
-        hidden_dim: int = 256,
-        num_blocks: int = 2,
-        action_low: jax.Array = -1,
-        action_high: jax.Array = 1,
-        use_bias: bool = True
-    ):
-        self.obs_dim = flattened_dim(obs_dim)
-        self.action_dim = action_dim
-        self.action_low = jnp.asarray(action_low)
-        self.action_high = jnp.asarray(action_high)
-        self.action_scale, self.action_bias = action_scale_bias(
-            self.action_low, self.action_high
-        )
-
-        self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias)
-        self.head = nnx.Linear(
-            hidden_dim,
-            action_dim,
-            rngs=rngs,
-            kernel_init=orthogonal(1),
-        )
-        self.policy = TanhDeterministicPolicy(
-            action_low=self.action_low,
-            action_high=self.action_high
-        )
-
-
-    def __call__(
-        self,
-        observations: jax.Array,
-        training: bool = True,
-    ) -> tuple[jax.Array, jax.Array]:
-        x = self.encoder(observations, training=training)
-        raw_actions = self.head(x)
-        return raw_actions
-
-    def get_action(
-        self,
-        observations: jax.Array,
-        training: bool = True,
-    ) -> tuple[jax.Array, jax.Array]:
-        raw_actions = self(observations, training=training)
-        actions = self.policy.action(raw_actions)
-        return actions
 
 
 class FlashSACQNetwork(nnx.Module):
@@ -221,4 +172,3 @@ class FlashSACDoubleCritic(nnx.Module):
         training: bool = True,
     ) -> jax.Array:
         return self.critic(observations, actions, training=training)
-

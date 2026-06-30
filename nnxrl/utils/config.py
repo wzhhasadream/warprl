@@ -16,7 +16,8 @@ PROFILE_DEFAULTS = {
         gamma=0.99,
         decay_step=80_000,
         compute_type='float32',
-        n_step=1
+        n_step=1,
+        buffer_type="numpy"
     ),
     "playground": dict(
         num_envs=1024,
@@ -30,7 +31,8 @@ PROFILE_DEFAULTS = {
         gamma=0.97,
         decay_step=2_000,
         compute_type='bfloat16',
-        n_step=1
+        n_step=1,
+        buffer_type="jax"
     ),
     "maniskill": dict(
         num_envs=1024,
@@ -44,7 +46,8 @@ PROFILE_DEFAULTS = {
         gamma=0.9,
         decay_step=2_000,
         compute_type='bfloat16',
-        n_step=1
+        n_step=1,
+        buffer_type="jax"
     ),
     "isaaclab": dict(
         num_envs=1024,
@@ -58,7 +61,8 @@ PROFILE_DEFAULTS = {
         gamma=0.99,
         decay_step=2_000,
         compute_type='bfloat16',
-        n_step=3
+        n_step=3,
+        buffer_type="jax"
     ),
 }
 

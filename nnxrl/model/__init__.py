@@ -12,5 +12,5 @@ FlowActor,
 freeze_module_params
 )
 from .coupled_flow import CoupleFlowActor
-from .flashsacnetwork import FlashSACActor, FlashSACQNetwork, FlashSACDoubleCritic, FlashSACTanhDetActor
+from .flashsacnetwork import FlashSACActor, FlashSACQNetwork, FlashSACDoubleCritic
 from .normailze_params import project_param

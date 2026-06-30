@@ -62,7 +62,7 @@ class JaxBuffer:
     @classmethod
     def create(
         cls,
-        obs_shape_space: spaces.Space,
+        observation_space: spaces.Space,
         action_shape_space: spaces.Space,
         max_size: int = int(1e6),
         linear_decay_step: int = 0,
@@ -80,12 +80,12 @@ class JaxBuffer:
         assert 0 <= min_weight <= 1, f"min_weight must be in [0, 1], got {min_weight}"
         use_approximate_sampling = use_approximate_sampling and max_size % n_envs == 0
 
-        obs_shape = get_obs_shape(obs_shape_space)
+        obs_shape = get_obs_shape(observation_space)
         if isinstance(obs_shape, dict):
             raise NotImplementedError("JaxBuffer does not support Dict observation spaces")
         obs_shape = tuple(obs_shape)
         action_shape = (get_action_dim(action_shape_space),)
-        obs_dtype = jnp.dtype(obs_shape_space.dtype)
+        obs_dtype = jnp.dtype(observation_space.dtype)
         action_dtype = jnp.dtype(action_shape_space.dtype)
         observations = jnp.empty((max_size, *obs_shape), dtype=obs_dtype)
         actions = jnp.empty((max_size, *action_shape), dtype=action_dtype)
@@ -138,7 +138,7 @@ class JaxBuffer:
             use_approximate_sampling=bool(use_approximate_sampling),
             num_buckets=int(num_buckets),
         )
-
+    @jax.jit
     def add(self, transition: Transition) -> "JaxBuffer":
         observations = _reshape_obs(transition.observations, self.n_envs, self.obs_shape, self.obs_dtype)
         actions = _reshape_action(transition.actions, self.n_envs, self.action_shape, self.action_dtype)
@@ -316,7 +316,8 @@ class JaxBuffer:
         if self.use_approximate_sampling:
             return self._sample_approx_biased_indices(key, batch_size)
         return self._sample_exact_biased_indices(key, batch_size)
-
+        
+    @jax.jit
     def sample(self, key: jax.Array, batch_size: int) -> Batch:
         indices = self._sample_indices(key, batch_size)
 

@@ -28,7 +28,7 @@ def _to_torch_dtype(dtype: Any) -> torch.dtype:
 class TorchBuffer(BaseBuffer):
     def __init__(
         self,
-        obs_shape_space: spaces.Space,
+        observation_space: spaces.Space,
         action_shape_space: spaces.Space,
         max_size: int = int(1e6),
         linear_decay_step: int = 0,
@@ -38,9 +38,9 @@ class TorchBuffer(BaseBuffer):
         n_envs: int = 1,
         use_approximate_sampling: bool = True,
         num_buckets: int = 2000,
-        device: str | torch.device = "cpu",
+        device: str | torch.device = "cuda:0",
     ):
-        super().__init__(obs_shape_space, action_shape_space, max_size)
+        super().__init__(observation_space, action_shape_space, max_size)
         self.linear_decay_step = linear_decay_step
         self.abs_linear_decay_step = abs(linear_decay_step)
         self.n_step = n_step
