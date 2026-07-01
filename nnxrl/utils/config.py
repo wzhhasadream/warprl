@@ -10,14 +10,12 @@ PROFILE_DEFAULTS = {
         buffer_size=1_000_000,
         learning_starts=10_000,
         batch_size=512,
-        grad_step_per_env_step=1,
-        eval_frequency=50_000,
-        log_frequency=2_001,
+        grad_step_per_interaction_step=1,
         gamma=0.99,
         decay_step=80_000,
         compute_type='float32',
         n_step=1,
-        buffer_type="numpy"
+        buffer_device="cpu"
     ),
     "playground": dict(
         num_envs=1024,
@@ -25,14 +23,12 @@ PROFILE_DEFAULTS = {
         buffer_size=10_000_000,
         learning_starts=100_000,
         batch_size=2048,
-        grad_step_per_env_step=2,
-        eval_frequency=5_000_000,
-        log_frequency=2_000_000,
+        grad_step_per_interaction_step=2,
         gamma=0.97,
         decay_step=2_000,
         compute_type='bfloat16',
         n_step=1,
-        buffer_type="jax"
+        buffer_device="cuda"
     ),
     "maniskill": dict(
         num_envs=1024,
@@ -40,14 +36,12 @@ PROFILE_DEFAULTS = {
         buffer_size=10_000_000,
         learning_starts=100_000,
         batch_size=2048,
-        grad_step_per_env_step=2,
-        eval_frequency=5_000_000,
-        log_frequency=2_000_000,
+        grad_step_per_interaction_step=2,
         gamma=0.9,
         decay_step=2_000,
         compute_type='bfloat16',
         n_step=1,
-        buffer_type="jax"
+        buffer_device="cuda"
     ),
     "isaaclab": dict(
         num_envs=1024,
@@ -55,14 +49,12 @@ PROFILE_DEFAULTS = {
         buffer_size=10_000_000,
         learning_starts=100_000,
         batch_size=2048,
-        grad_step_per_env_step=2,
-        eval_frequency=5_000_000,
-        log_frequency=2_000_000,
+        grad_step_per_interaction_step=2,
         gamma=0.99,
         decay_step=2_000,
         compute_type='bfloat16',
         n_step=3,
-        buffer_type="jax"
+        buffer_device="cuda"
     ),
 }
 
@@ -82,7 +74,5 @@ def resolve_profile(args: Any) -> Any:
         if getattr(args, key) is None:
             setattr(args, key, value)
 
-    if args.env_type in ['myosuite', 'maniskill']:
-        args.eval_episode = 100
 
     return args

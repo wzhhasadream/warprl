@@ -8,7 +8,7 @@ from nnxrl.utils import (
     resolve_profile, 
     record_video
 )
-from nnxrl.buffer import Transition
+from nnxrl.buffers import Transition
 import numpy as np
 import tyro
 import dataclasses
@@ -29,19 +29,19 @@ class Args:
     buffer_size: int | None = None
     learning_starts: int | None = None        
     batch_size: int | None = None
-    grad_step_per_env_step: int | None = None
-    eval_frequency: int | None = None
-    log_frequency: int | None = None
+    grad_step_per_interaction_step: int | None = None
     gamma: float | None = None
     decay_step: int | None = None
     compute_type: Literal["float32", "bfloat16"] | None = None
     n_step: int | None = None
-    buffer_type: Literal["jax", "numpy"] | None = None
+    buffer_device: Literal["cpu", "cuda"] | None = None
     #######################################################
-
+    eval_frequency: int | None = None
+    log_frequency: int | None = None
+    num_interaction_steps: int | None = None
     policy_frequency: int = 2
     target_frequency: int = 1
-    eval_episode: int = 10
+    eval_episode: int = 50
     tau: float = 1e-2
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
@@ -61,26 +61,35 @@ class Args:
     log_path: str = "nnxrl"
     action_repeat: int = 1
 
+    def __post_init__(self):
+        resolve_profile(self)
+        self.num_interaction_steps = self.total_timesteps // self.num_envs
+        if self.eval_frequency is None:
+            self.eval_frequency = self.num_interaction_steps // 10
+
+        if self.log_frequency is None:
+            self.log_frequency = self.num_interaction_steps // 20
+
 
 def main():
     print("🚀 RainBowsac training")
     print("=" * 60)
 
     args = tyro.cli(Args)
-    args = resolve_profile(args)
     np.random.seed(args.seed)
 
     wandb.init(project=args.log_path, name=f"{args.env_id}", config=vars(args))
 
     train_envs, eval_envs, record_envs = create_envs(
-        args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed)
+        args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed, record_render_mode="rgb_array" if args.record_video else None)
 
     agent = RainbowSACAgent(train_envs, args)
+
 
     def eval_and_log(agent, global_step):
         def policy(obs):
             return agent.get_action(obs)
-        info = evaluate_policy(eval_envs, policy, args.env_type, args.eval_episode)
+        info = evaluate_policy(policy, eval_envs, args.eval_episode, args.env_type)
         wandb.log(info, global_step)
         if args.record_video:
             videos = record_video(policy, record_envs)
@@ -89,9 +98,8 @@ def main():
             wandb.save_agent(agent, global_step)
 
     obs, info = train_envs.reset(seed=args.seed)
-    for global_step in range(0, args.total_timesteps, args.num_envs):
-        if global_step % args.eval_frequency < args.num_envs:
-            eval_and_log(agent, global_step)
+    eval_and_log(agent, 0)
+    for interaction_step in range(0, args.num_interaction_steps):
         if not agent.can_update:
             actions = train_envs.action_space.sample()
         else:
@@ -117,8 +125,11 @@ def main():
         agent.process_transition(transitions)
         if agent.can_update:
             info = agent.update()
-            if global_step % args.log_frequency < args.num_envs:
-                wandb.log(info, global_step)
+            if interaction_step % args.log_frequency == 0:
+                wandb.log(info, interaction_step * args.num_envs)
+        
+        if interaction_step % args.eval_frequency == 0:
+            eval_and_log(agent, interaction_step * args.num_envs)
 
         obs = next_obs
 

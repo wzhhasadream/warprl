@@ -6,8 +6,8 @@ from flax import nnx
 import numpy as np
 from optax import adam, cosine_decay_schedule
 from nnxrl.env import CPU_SIM
-from nnxrl.buffer import Transition, create_buffer
-from nnxrl.buffer.jax_buffer import JaxBuffer
+from nnxrl.buffers import Transition
+from nnxrl.buffers.jax_buffer import JaxBuffer
 from nnxrl.model import Alpha, FlashSACActor, FlashSACDoubleCritic, project_param
 from nnxrl.utils import (
     RewardNormalizer,
@@ -82,16 +82,16 @@ class RainbowSACAgent:
         q_lr = getattr(self.cfg, "q_lr")
 
         rngs = nnx.Rngs(getattr(self.cfg, "seed"))
-        self.replay_buffer = create_buffer(
+        self.replay_buffer = JaxBuffer.create(
             action_space=self.action_space,
             observation_space=self.observation_space,
-            buffer_type=getattr(self.cfg, "buffer_type", "numpy"),
             num_env=self.num_envs,
             max_size=getattr(self.cfg, "buffer_size", 512),
             linear_decay_step=getattr(self.cfg, "decay_step", 0),
             n_step=getattr(self.cfg, "n_step", 1),
             gamma=getattr(self.cfg, "gamma", 0.99),
             use_approximate_sampling=getattr(self.cfg, "env_type", "mujoco") in CPU_SIM,
+            device=getattr(self.cfg, "buffer_device", 'cpu')
         )
 
         self.actor = FlashSACActor(
@@ -100,8 +100,8 @@ class RainbowSACAgent:
                 rngs.fork(),
                 hidden_dim=getattr(self.cfg, "actor_hidden_dim"),
                 num_blocks=getattr(self.cfg, "actor_num_blocks"),
-                action_high=self.action_space.high,
-                action_low=self.action_space.low,
+                action_high=1,
+                action_low=-1,
                 use_bias=getattr(self.cfg, "use_bias"),
                 compute_type=compute_type,
             )
@@ -163,22 +163,17 @@ class RainbowSACAgent:
         )
         return np.asarray(actions)
 
-    def process_transition(self, transition: Transition):
-        if self.reward_normalizer is not None and getattr(self.cfg, "normalize_rewards"):
-            dones = np.logical_or(transition.terminations, transition.truncations)
-            self.reward_normalizer = update_reward_normalizer(self.reward_normalizer, transition.rewards, dones)
-        if isinstance(self.replay_buffer, JaxBuffer):
-            self.replay_buffer = self.replay_buffer.add(transition)
-        else:
-            self.replay_buffer.add(transition)
-        return None
+    def process_transition(self, transition: Transition) -> None:
+        dones = np.logical_or(transition.terminations, transition.truncations)
+        self.reward_normalizer = update_reward_normalizer(self.reward_normalizer, transition.rewards, dones)
+        self.replay_buffer = self.replay_buffer.add(transition)
 
     @property
     def can_update(self) -> bool:
         return self.replay_buffer.size >= getattr(self.cfg, "learning_starts") and self.replay_buffer.can_sample()
 
     def update(self):
-        batch_size = getattr(self.cfg, "batch_size") * getattr(self.cfg, "grad_step_per_env_step")
+        batch_size = getattr(self.cfg, "batch_size") * getattr(self.cfg, "grad_step_per_interaction_step")
         if isinstance(self.replay_buffer, JaxBuffer):
             self._sample_key, sample_key = jax.random.split(self._sample_key, 2)
             batch = self.replay_buffer.sample(sample_key, batch_size)

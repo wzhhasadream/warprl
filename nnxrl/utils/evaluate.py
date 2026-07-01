@@ -3,105 +3,86 @@ from typing import Callable
 import gymnasium
 import numpy as np
 from gymnasium.vector import VectorEnv
-from gymnasium.wrappers.utils import RunningMeanStd
-
-
-def _as_float_array(values, *, size: int) -> np.ndarray:
-    arr = np.asarray(values, dtype=object)
-    if arr.shape == ():
-        arr = np.full((size,), arr.item(), dtype=object)
-    out = np.zeros((size,), dtype=np.float32)
-    for idx, value in enumerate(arr.reshape(-1)):
-        if value is None:
-            continue
-        value = float(value)
-        if np.isfinite(value):
-            out[idx] = value
-    return out
-
-
-def _extract_step_success(infos: dict, num_envs: int) -> np.ndarray:
-    if "success" in infos:
-        valid = np.asarray(infos.get("_success", np.ones(num_envs, dtype=bool)), dtype=bool)
-        return _as_float_array(infos["success"], size=num_envs) * valid.astype(np.float32)
-
-    final_info = infos.get("final_info")
-    if isinstance(final_info, dict) and "success" in final_info:
-        valid = np.asarray(infos.get("_final_info", np.ones(num_envs, dtype=bool)), dtype=bool)
-        return _as_float_array(final_info["success"], size=num_envs) * valid.astype(np.float32)
-
-    if isinstance(final_info, np.ndarray):
-        out = np.zeros((num_envs,), dtype=np.float32)
-        valid = np.asarray(infos.get("_final_info", np.ones(num_envs, dtype=bool)), dtype=bool)
-        for idx, item in enumerate(final_info):
-            if valid[idx] and isinstance(item, dict) and "success" in item:
-                out[idx] = float(item["success"])
-        return out
-
-    return np.zeros((num_envs,), dtype=np.float32)
 
 
 def evaluate_policy(
-    envs: Callable | list[Callable] | VectorEnv,
-    policy: Callable[[np.ndarray], np.ndarray],
-    env_type: str = 'mujoco',
-    eval_episodes: int = 100,
-    num_envs: int = 10,
-    seed: int = 0,
-    rms: RunningMeanStd | None = None,
-) -> dict:
-    close_envs = False
-    if isinstance(envs, list):
-        envs = gymnasium.vector.SyncVectorEnv(envs)
-        close_envs = True
-    elif callable(envs):
-        envs = gymnasium.vector.SyncVectorEnv([envs for _ in range(num_envs)])
-        close_envs = True
-    elif not isinstance(envs, VectorEnv):
-        raise TypeError(f"Unsupported envs type: {type(envs)}")
+    policy: Callable,
+    env: VectorEnv,
+    num_episodes: int,
+    env_type: str,
+) -> dict[str, float]:
+    num_envs = env.num_envs
 
-    if rms is not None:
-        import copy
+    assert num_episodes % num_envs == 0, "num_episodes must be divisible by env.num_envs"
+    num_eval_episodes_per_env = num_episodes // num_envs
 
-        envs = gymnasium.wrappers.vector.NormalizeObservation(envs)
-        envs.obs_rms = copy.deepcopy(rms)
-        envs.update_running_mean = False
-    if env_type == 'isaaclab':
-        obs, _ = envs.reset(seed=seed, random_start_init=False)
-    else:
-        obs, _ = envs.reset(seed=seed)
+    total_return_list = []
+    total_success_once_list = []
+    total_success_end_list = []
+    total_length_list = []
 
-    episodic_returns = []
-    episodic_success = []
-    running_returns = np.zeros(envs.num_envs, dtype=np.float64)
-    running_successes = np.zeros(envs.num_envs, dtype=np.float32)
+    for _ in range(num_eval_episodes_per_env):
+        returns = np.zeros(num_envs)
+        lengths = np.zeros(num_envs)
+        success_once = np.zeros(num_envs)
+        success_end = np.zeros(num_envs)
+        if env_type == "isaaclab":
+            observations, infos = env.reset(
+                random_start_init=False)  # type: ignore[call-arg]
+        else:
+            observations, infos = env.reset()
 
-    while len(episodic_returns) < eval_episodes:
-        actions = np.asarray(policy(obs))
-        next_obs, rewards, terminated, truncated, infos = envs.step(actions)
+        dones = np.zeros(num_envs)
+        while np.sum(dones) < num_envs:
+            actions = policy(observations)
+            actions = np.array(actions)
+            next_observations, rewards, terminateds, truncateds, infos = env.step(
+                actions)
 
-        running_returns += np.asarray(rewards, dtype=np.float64)
-        running_successes += _extract_step_success(infos, envs.num_envs)
 
-        dones = np.logical_or(terminated, truncated)
-        if dones.any():
-            episodic_returns.extend(running_returns[dones].tolist())
-            episodic_success.extend((running_successes[dones] > 0).astype(np.float32).tolist())
-            running_returns[dones] = 0.0
-            running_successes[dones] = 0.0
+            returns += rewards * (1 - dones)
+            lengths += 1 - dones
 
-        obs = next_obs
+            if "success" in infos:
+                success = infos["success"].astype("float") * (1 - dones)
+                success_once = np.logical_or(success_once, success)
 
-    if close_envs:
-        envs.close()
+            if "final_info" in infos:
+                for idx in range(num_envs):
+                    final_info = infos["final_info"]
+                    if "success" in final_info:
+                        final_success = final_info["success"][idx].astype(
+                            "float") * (1 - dones[idx])
+                        success_end[idx] = final_success
+            else:
+                pass
 
-    result = {
-        "eval/episode_return": float(np.mean(episodic_returns)),
-        "eval/episode_return_std": float(np.std(episodic_returns)),
+            # once an episode is done in a sub-environment, we assume it to be done.
+            # also, we assume to be done whether it is terminated or truncated during evaluation.
+            dones = np.maximum(dones, terminateds)
+            dones = np.maximum(dones, truncateds)
+
+            # proceed
+            observations = next_observations
+
+        for env_idx in range(num_envs):
+            total_return_list.append(returns[env_idx])
+            total_length_list.append(lengths[env_idx])
+            total_success_once_list.append(
+                success_once[env_idx].astype("bool").astype("float"))
+            total_success_end_list.append(
+                success_end[env_idx].astype("bool").astype("float"))
+
+    eval_info = {
+        "avg_return": float(np.mean(total_return_list)),
+        "avg_length": float(np.mean(total_length_list)),
+        "avg_success_once": float(np.mean(total_success_once_list)),
+        "avg_success_end": float(np.mean(total_success_end_list)),
     }
-    if episodic_success:
-        result["eval/success_rate"] = float(np.mean(episodic_success))
-    return result
+
+    env.reset()
+
+    return eval_info
 
 
 def record_video(
