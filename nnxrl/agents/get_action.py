@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-
+from functools import partial
 from nnxrl.model import FlashSACActor
 from nnxrl.utils import RewardNormalizer, sample_truncated_zeta, select_actor_observations
 
@@ -38,7 +38,7 @@ def get_exploration_action(
     return true_action_key, actions, new_repeat_n, new_repeat_count
 
 
-@jax.jit
+@partial(jax.jit, donate_argnums=0)
 def update_reward_normalizer(
     reward_normalizer: RewardNormalizer | None,
     rewards: jax.Array,

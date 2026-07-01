@@ -1,8 +1,8 @@
 import jax.numpy as jnp
 from functools import lru_cache
 import numpy as np
-from flax import nnx
 import jax
+from functools import partial
 
 @lru_cache(maxsize=None)
 def make_taus(num_quantiles: int):
@@ -32,7 +32,8 @@ def quantile_huber_loss(diff, taus, kappa: float = 1.0):
     huber_loss = huber_replace(diff, kappa)
     return (weight * huber_loss / kappa).sum(axis=1).mean()
 
-@nnx.vmap(in_axes=(0, None, None))
+
+@partial(jax.vmap, in_axes=(0, None, None))
 def quantile_loss(q_distributional, target_q_distributional, kappa: float = 1.0):
     """Distributional quantile regression loss for an ensemble critic.
 
@@ -130,7 +131,7 @@ def categorical_projection(
     return jax.lax.stop_gradient(projected)
 
 
-@nnx.vmap(in_axes=(0, None))
+@partial(jax.vmap, in_axes=(0, None))
 def categorical_ce_loss(
     logits: jax.Array,
     target_probs: jax.Array,

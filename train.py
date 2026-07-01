@@ -17,9 +17,9 @@ import dataclasses
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab'] = "auto"
 
-    env_id: str = "PickSingleYCB-v1"
+    env_id: str = "humanoid-run"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'maniskill'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'dmc'
 
     seed: int = 1
 
@@ -58,7 +58,7 @@ class Args:
     record_video: Literal[True, False] = False
     save_agent: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
-    log_path: str = "final"
+    log_path: str = "nnxrl"
     action_repeat: int = 1
 
 

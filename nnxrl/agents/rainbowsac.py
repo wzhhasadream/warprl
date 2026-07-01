@@ -147,10 +147,12 @@ class RainbowSACAgent:
 
 
     def get_action(self, obs: jax.Array | np.ndarray):
+        obs = obs.reshape((-1,) + self.observation_space.shape)
         actions = self._get_action_fn(obs)
         return np.asarray(actions)
 
     def get_exploration_action(self, obs):
+        obs = obs.reshape((-1,) + self.observation_space.shape)
         self._action_key, action_key = jax.random.split(self._action_key, 2)
         self.cached_key, actions, self.repeat_n, self.repeat_count = self._get_exploration_action_fn(
             obs,

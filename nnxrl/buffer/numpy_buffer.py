@@ -210,5 +210,10 @@ class NumpyBuffer(BaseBuffer):
             discounts=self.discounts[:self.size],
         )
 
+    def load(self, path: str) -> None:
+        data = np.load(path)
+        for key, value in data:
+            setattr(self, key, value)
+
     def __len__(self) -> int:
         return self.size

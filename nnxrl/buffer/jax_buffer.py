@@ -358,5 +358,11 @@ class JaxBuffer:
         }
         np.savez(path, **dataset)
 
+
+    def load(self, path: str) -> "JaxBuffer":
+        data = np.load(path)
+        data = jax.tree.map(jnp.asarray, data)
+        return self.replace(**data)
+
     def __len__(self) -> int:
         return int(self.size)

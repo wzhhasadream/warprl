@@ -240,5 +240,10 @@ class TorchBuffer(BaseBuffer):
             path,
         )
 
+    def load(self, path: str) -> None:
+        data = torch.load(path)
+        for key, value in data:
+            setattr(self, key, value)
+
     def __len__(self) -> int:
         return self.size
