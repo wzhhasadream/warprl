@@ -75,7 +75,7 @@ class RainbowSACAgent:
         num_critic_updates = int(
             getattr(self.cfg, "total_timesteps")
             / getattr(self.cfg, "num_envs")
-            * getattr(self.cfg, "grad_step_per_env_step")
+            * getattr(self.cfg, "grad_step_per_interaction_step")
         )
         end_lr = getattr(self.cfg, "end_lr")
         policy_lr = getattr(self.cfg, "policy_lr")
@@ -85,7 +85,7 @@ class RainbowSACAgent:
         self.replay_buffer = JaxBuffer.create(
             action_space=self.action_space,
             observation_space=self.observation_space,
-            num_env=self.num_envs,
+            num_envs=self.num_envs,
             max_size=getattr(self.cfg, "buffer_size", 512),
             linear_decay_step=getattr(self.cfg, "decay_step", 0),
             n_step=getattr(self.cfg, "n_step", 1),
