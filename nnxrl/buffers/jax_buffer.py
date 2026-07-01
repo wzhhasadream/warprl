@@ -54,6 +54,13 @@ def resolve_device(device: str | jax.Device | None) -> jax.Device | None:
     return device
 
 
+def _to_jax_dtype(dtype: Any) -> jnp.dtype:
+    dtype = jnp.dtype(dtype)
+    if dtype == jnp.float64 and not jax.config.jax_enable_x64:
+        return jnp.float32
+    return dtype
+
+
 @struct.dataclass
 class JaxBuffer:
     observations: jax.Array
@@ -78,7 +85,7 @@ class JaxBuffer:
     window_size: jax.Array
 
     max_size: int = struct.field(pytree_node=False)
-    n_envs: int = struct.field(pytree_node=False)
+    num_envs: int = struct.field(pytree_node=False)
     obs_shape: tuple[int, ...] = struct.field(pytree_node=False)
     action_shape: tuple[int, ...] = struct.field(pytree_node=False)
     obs_dtype: jnp.dtype = struct.field(pytree_node=False)
@@ -96,23 +103,23 @@ class JaxBuffer:
     def create(
         cls,
         observation_space: spaces.Space,
-        action_shape_space: spaces.Space,
+        action_space: spaces.Space,
         max_size: int = int(1e6),
         linear_decay_step: int = 0,
         min_weight: float = 0.1,
         n_step: int = 1,
         gamma: float = 0.99,
-        n_envs: int = 1,
+        num_envs: int = 1,
         use_approximate_sampling: bool = True,
         num_buckets: int = 2000,
         device: str | jax.Device | None = "cuda:0"
     ) -> "JaxBuffer":
         assert n_step >= 1, f"n_step must be positive, got {n_step}"
-        assert n_envs >= 1, f"n_envs must be positive, got {n_envs}"
-        assert max_size >= n_envs, f"max_size must be >= n_envs, got {max_size} and {n_envs}"
+        assert num_envs >= 1, f"n_envs must be positive, got {num_envs}"
+        assert max_size >= num_envs, f"max_size must be >= num_envs, got {max_size} and {num_envs}"
         assert num_buckets >= 1, f"num_buckets must be positive, got {num_buckets}"
         assert 0 <= min_weight <= 1, f"min_weight must be in [0, 1], got {min_weight}"
-        use_approximate_sampling = use_approximate_sampling and max_size % n_envs == 0
+        use_approximate_sampling = use_approximate_sampling and max_size % num_envs == 0
 
         device = resolve_device(device)
 
@@ -120,9 +127,9 @@ class JaxBuffer:
         if isinstance(obs_shape, dict):
             raise NotImplementedError("JaxBuffer does not support Dict observation spaces")
         obs_shape = tuple(obs_shape)
-        action_shape = (get_action_dim(action_shape_space),)
-        obs_dtype = jnp.dtype(observation_space.dtype)
-        action_dtype = jnp.dtype(action_shape_space.dtype)
+        action_shape = (get_action_dim(action_space),)
+        obs_dtype = _to_jax_dtype(observation_space.dtype)
+        action_dtype = _to_jax_dtype(action_space.dtype)
         observations = jnp.empty((max_size, *obs_shape), dtype=obs_dtype, device=device)
         actions = jnp.empty((max_size, *action_shape),
                             dtype=action_dtype, device=device)
@@ -133,12 +140,12 @@ class JaxBuffer:
         discounts = jnp.empty((max_size,), dtype=jnp.float32, device=device)
         timestamps = jnp.zeros((max_size,), dtype=jnp.int32, device=device)
 
-        window_observations = jnp.empty((n_step, n_envs, *obs_shape), dtype=obs_dtype, device=device)
-        window_actions = jnp.empty((n_step, n_envs, *action_shape), dtype=action_dtype, device=device)
-        window_rewards = jnp.empty((n_step, n_envs), dtype=jnp.float32, device=device)
-        window_terminations = jnp.empty((n_step, n_envs), dtype=jnp.float32, device=device)
-        window_truncations = jnp.empty((n_step, n_envs), dtype=jnp.float32, device=device)
-        window_next_observations = jnp.empty((n_step, n_envs, *obs_shape), dtype=obs_dtype, device=device)
+        window_observations = jnp.empty((n_step, num_envs, *obs_shape), dtype=obs_dtype, device=device)
+        window_actions = jnp.empty((n_step, num_envs, *action_shape), dtype=action_dtype, device=device)
+        window_rewards = jnp.empty((n_step, num_envs), dtype=jnp.float32, device=device)
+        window_terminations = jnp.empty((n_step, num_envs), dtype=jnp.float32, device=device)
+        window_truncations = jnp.empty((n_step, num_envs), dtype=jnp.float32, device=device)
+        window_next_observations = jnp.empty((n_step, num_envs, *obs_shape), dtype=obs_dtype, device=device)
 
         return cls(
             observations=observations,
@@ -162,7 +169,7 @@ class JaxBuffer:
             window_ptr=jnp.array(0, dtype=jnp.int32, device=device),
             window_size=jnp.array(0, dtype=jnp.int32, device=device),
             max_size=int(max_size),
-            n_envs=int(n_envs),
+            num_envs=int(num_envs),
             obs_shape=obs_shape,
             action_shape=action_shape,
             obs_dtype=obs_dtype,
@@ -178,12 +185,12 @@ class JaxBuffer:
         )
     @partial(jax.jit , donate_argnums=0)
     def add(self, transition: Transition) -> "JaxBuffer":
-        observations = _reshape_obs(transition.observations, self.n_envs, self.obs_shape, self.obs_dtype, self.device)
-        actions = _reshape_action(transition.actions, self.n_envs, self.action_shape, self.action_dtype, self.device)
-        rewards = _reshape_scalar(transition.rewards, self.n_envs, self.device)
-        terminations = _reshape_scalar(transition.terminations, self.n_envs, self.device)
-        truncations = _reshape_scalar(transition.truncations, self.n_envs, self.device)
-        next_observations = _reshape_obs(transition.next_observations, self.n_envs, self.obs_shape, self.obs_dtype, self.device)
+        observations = _reshape_obs(transition.observations, self.num_envs, self.obs_shape, self.obs_dtype, self.device)
+        actions = _reshape_action(transition.actions, self.num_envs, self.action_shape, self.action_dtype, self.device)
+        rewards = _reshape_scalar(transition.rewards, self.num_envs, self.device)
+        terminations = _reshape_scalar(transition.terminations, self.num_envs, self.device)
+        truncations = _reshape_scalar(transition.truncations, self.num_envs, self.device)
+        next_observations = _reshape_obs(transition.next_observations, self.num_envs, self.obs_shape, self.obs_dtype, self.device)
 
         next_buffer = self.replace(
             window_observations=self.window_observations.at[self.window_ptr].set(observations),
@@ -221,14 +228,15 @@ class JaxBuffer:
         n_step_termination = terminations[-1]
         n_step_truncation = truncations[-1]
         n_step_next_observation = next_observations[-1]
-        effective_n_steps = jnp.ones((self.n_envs,), dtype=jnp.float32, device=self.device)
+        effective_n_steps = jnp.ones((self.num_envs,), dtype=jnp.float32, device=self.device)
 
         for idx in reversed(range(self.n_step - 1)):
             episode_end = jnp.logical_or(terminations[idx] > 0.0, truncations[idx] > 0.0)
             n_step_reward = rewards[idx] + self.gamma * n_step_reward * (1.0 - episode_end.astype(jnp.float32))
             n_step_termination = jnp.where(episode_end, terminations[idx], n_step_termination)
             n_step_truncation = jnp.where(episode_end, truncations[idx], n_step_truncation)
-            obs_mask = episode_end.reshape((self.n_envs,) + (1,) * len(self.obs_shape))
+            obs_mask = episode_end.reshape(
+                (self.num_envs,) + (1,) * len(self.obs_shape))
             n_step_next_observation = jnp.where(
                 obs_mask,
                 next_observations[idx],
@@ -249,7 +257,7 @@ class JaxBuffer:
 
     def _store_from_window(self) -> "JaxBuffer":
         transition, discounts = self._get_n_step_transition()
-        add_indices = (self.ptr + jnp.arange(self.n_envs, dtype=self.ptr.dtype, device=self.device)) % self.max_size
+        add_indices = (self.ptr + jnp.arange(self.num_envs, dtype=self.ptr.dtype, device=self.device)) % self.max_size
 
         new_observations = self.observations.at[add_indices].set(transition.observations)
         new_actions = self.actions.at[add_indices].set(transition.actions)
@@ -260,8 +268,8 @@ class JaxBuffer:
         new_discounts = self.discounts.at[add_indices].set(discounts)
         new_timestamps = self.timestamps.at[add_indices].set(self.current_time)
 
-        new_ptr = (self.ptr + self.n_envs) % self.max_size
-        new_size = jnp.minimum(self.size + self.n_envs, self.max_size)
+        new_ptr = (self.ptr + self.num_envs) % self.max_size
+        new_size = jnp.minimum(self.size + self.num_envs, self.max_size)
 
         return self.replace(
             observations=new_observations,

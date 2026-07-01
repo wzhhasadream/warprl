@@ -61,7 +61,19 @@ def create_buffer(
     if buffer_type == "jax":
         from .jax_buffer import JaxBuffer
 
-        return JaxBuffer.create(**common_kwargs, device=device)
+        return JaxBuffer.create(
+            observation_space=observation_space,
+            action_space=action_space,
+            max_size=max_size,
+            linear_decay_step=linear_decay_step,
+            min_weight=min_weight,
+            n_step=n_step,
+            gamma=gamma,
+            num_envs=num_env,
+            use_approximate_sampling=use_approximate_sampling,
+            num_buckets=num_buckets,
+            device=device,
+        )
 
     raise ValueError(f"Invalid buffer_type: {buffer_type}")
 

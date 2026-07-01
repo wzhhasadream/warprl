@@ -12,7 +12,7 @@ from nnxrl.buffers import Transition
 import numpy as np
 import tyro
 import dataclasses
-
+import tqdm
 @dataclasses.dataclass
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab'] = "auto"
@@ -99,7 +99,7 @@ def main():
 
     obs, info = train_envs.reset(seed=args.seed)
     eval_and_log(agent, 0)
-    for interaction_step in range(0, args.num_interaction_steps):
+    for interaction_step in tqdm.tqdm(range(1, int(args.num_interaction_steps + 1)), smoothing=0.1, mininterval=0.5):
         if not agent.can_update:
             actions = train_envs.action_space.sample()
         else:
@@ -128,8 +128,8 @@ def main():
             if interaction_step % args.log_frequency == 0:
                 wandb.log(info, interaction_step * args.num_envs)
         
-        if interaction_step % args.eval_frequency == 0:
-            eval_and_log(agent, interaction_step * args.num_envs)
+            if interaction_step % args.eval_frequency == 0:
+                eval_and_log(agent, interaction_step * args.num_envs)
 
         obs = next_obs
 
