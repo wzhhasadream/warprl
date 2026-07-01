@@ -34,11 +34,9 @@ class RainbowSACConfig(Protocol):
     tau: float
 
     batch_size: int
-    grad_step_per_env_step: int
+    grad_step_per_interaction_step: int
     policy_frequency: int
     target_frequency: int
-
-    normalize_observation: bool
 
     alpha: float
     target_entropy: float
@@ -254,11 +252,12 @@ def make_update_rainbowsac(config: RainbowSACConfig):
 
         batches = jax.tree.map(
             lambda x: x.reshape(
-                config.grad_step_per_env_step, config.batch_size, *x.shape[1:]),
+                config.grad_step_per_interaction_step, config.batch_size, *x.shape[1:]),
             big_batch,
         )
 
-        update_keys = jax.random.split(key, config.grad_step_per_env_step)
+        update_keys = jax.random.split(
+            key, config.grad_step_per_interaction_step)
 
         @nnx.scan(in_axes=(nnx.Carry, 0, 0), out_axes=(nnx.Carry, 0))
         def update_minibatch(carry, sub_batch: Batch, key: jax.Array):
