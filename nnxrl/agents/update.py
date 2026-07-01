@@ -19,7 +19,7 @@ from ..utils import (
     make_bin_values,
     categorical_projection,
     categorical_ce_loss)
-from nnxrl.buffer import Batch
+from nnxrl.buffers import Batch
 
 
 class RainbowSACConfig(Protocol):
