@@ -15,7 +15,8 @@ PROFILE_DEFAULTS = {
         decay_step=80_000,
         compute_type='float32',
         n_step=1,
-        buffer_device="cpu"
+        buffer_device="cpu",
+        eval_episode=50
     ),
     "playground": dict(
         num_envs=1024,
@@ -28,7 +29,8 @@ PROFILE_DEFAULTS = {
         decay_step=2_000,
         compute_type='bfloat16',
         n_step=1,
-        buffer_device="cuda"
+        buffer_device="cuda",
+        eval_episode=50
     ),
     "maniskill": dict(
         num_envs=1024,
@@ -41,7 +43,8 @@ PROFILE_DEFAULTS = {
         decay_step=2_000,
         compute_type='bfloat16',
         n_step=1,
-        buffer_device="cuda"
+        buffer_device="cuda",
+        eval_episode=50
     ),
     "isaaclab": dict(
         num_envs=1024,
@@ -54,7 +57,8 @@ PROFILE_DEFAULTS = {
         decay_step=2_000,
         compute_type='bfloat16',
         n_step=3,
-        buffer_device="cuda"
+        buffer_device="cuda",
+        eval_episode=1024
     ),
 }
 

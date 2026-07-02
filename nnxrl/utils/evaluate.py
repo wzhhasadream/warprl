@@ -88,6 +88,7 @@ def evaluate_policy(
 def record_video(
     policy: Callable,
     env: VectorEnv,
+    env_type: str,
     num_episodes: int = 1,
     video_length: int = 1000,
 ) -> np.ndarray:
@@ -100,8 +101,11 @@ def record_video(
 
     for _ in range(num_eval_episodes_per_env):
         videos: list[np.ndarray] = []
-
-        observations, infos = env.reset()
+        if env_type == "isaaclab":
+            observations, infos = env.reset(
+                random_start_init=False)  # type: ignore[call-arg]
+        else:
+            observations, infos = env.reset()
         images = env.render()  # type: ignore
         dones = np.zeros(num_envs)
         while np.sum(dones) < num_envs:

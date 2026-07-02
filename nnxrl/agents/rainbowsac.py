@@ -44,6 +44,12 @@ class RainbowSACAgent:
             self.actor_observation_dim = envs.actor_observation_size
 
         self._init_train_state()
+        self._init_cached_fn()
+
+        self._action_key, self._update_key, self._sample_key = jax.random.split(jax.random.PRNGKey(getattr(cfg, "seed")), 3)
+
+
+    def _init_cached_fn(self):
         update_fn = make_update_rainbowsac(self.cfg)
         self._update_fn = nnx.cached_partial(
             update_fn,
@@ -65,8 +71,6 @@ class RainbowSACAgent:
             self.actor,
             self.asymmetric_obs,
         )
-        self._action_key, self._update_key, self._sample_key = jax.random.split(jax.random.PRNGKey(getattr(cfg, "seed")), 3)
-
 
     def _init_train_state(
         self,
@@ -140,6 +144,8 @@ class RainbowSACAgent:
             else None
         )
 
+        self.learner_device = jax.devices("gpu")[0] if jax.devices("gpu") else jax.devices("cpu")[0]
+
         self.cached_key = jax.random.PRNGKey(0)
         self.repeat_count = 0
         self.repeat_n = 1
@@ -175,6 +181,7 @@ class RainbowSACAgent:
     def update(self):
         self._sample_key, sample_key = jax.random.split(self._sample_key, 2)
         batch = self.replay_buffer.sample(sample_key, getattr(self.cfg, "batch_size"))
+        batch = jax.tree.map(lambda x: jax.device_put(x, self.learner_device), batch)
         self._update_key, update_key = jax.random.split(self._update_key)
         do_policy_update = self.critic_grad_updates % self.cfg.policy_frequency == 0
         do_target_update = self.critic_grad_updates  % self.cfg.target_frequency == 0
@@ -190,7 +197,7 @@ class RainbowSACAgent:
         return info
 
 
-    def save(self, path: str):
+    def save(self, path: str) -> None:
         save_states(path, {
             "actor": self.actor,
             "critic": self.critic,
@@ -203,7 +210,7 @@ class RainbowSACAgent:
             "reward_normalizer": self.reward_normalizer,
         })
 
-    def load(self, path: str):
+    def load(self, path: str) -> None:
         model_dict = load_states(path, {
             "actor": self.actor,
             "critic": self.critic,
@@ -217,4 +224,4 @@ class RainbowSACAgent:
         })
         for key, value in model_dict.items():
             setattr(self, key, value)
-        return self
+        self._init_cached_fn()

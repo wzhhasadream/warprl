@@ -1,7 +1,7 @@
 import nnxrl.utils.logger as wandb
 from typing import Literal
 from nnxrl.agents import RainbowSACAgent
-from nnxrl.env import create_envs
+from nnxrl.env import create_envs, isaaclab
 from nnxrl.utils import (
     evaluate_policy, 
     replace_done_next_obs, 
@@ -35,13 +35,13 @@ class Args:
     compute_type: Literal["float32", "bfloat16"] | None = None
     n_step: int | None = None
     buffer_device: Literal["cpu", "cuda"] | None = None
+    eval_episode: int | None = None
     #######################################################
     eval_frequency: int | None = None
     log_frequency: int | None = None
     num_interaction_steps: int | None = None
     policy_frequency: int = 2
     target_frequency: int = 1
-    eval_episode: int = 50
     tau: float = 1e-2
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
@@ -65,10 +65,10 @@ class Args:
         resolve_profile(self)
         self.num_interaction_steps = self.total_timesteps // self.num_envs
         if self.eval_frequency is None:
-            self.eval_frequency = self.num_interaction_steps // 10
+            self.eval_frequency = self.num_interaction_steps // 20
 
         if self.log_frequency is None:
-            self.log_frequency = self.num_interaction_steps // 20
+            self.log_frequency = self.num_interaction_steps // 50
 
 
 def main():
@@ -80,8 +80,10 @@ def main():
 
     wandb.init(project=args.log_path, name=f"{args.env_id}", config=vars(args))
 
+    render_mode = "rgb_array" if (args.record_video and args.env_type != "isaaclab") else None
+
     train_envs, eval_envs, record_envs = create_envs(
-        args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed, record_render_mode="rgb_array" if args.record_video else None)
+        args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed, render_mode=render_mode)
 
     agent = RainbowSACAgent(train_envs, args)
 
@@ -92,7 +94,7 @@ def main():
         info = evaluate_policy(policy, eval_envs, args.eval_episode, args.env_type)
         wandb.log(info, global_step)
         if args.record_video:
-            videos = record_video(policy, record_envs)
+            videos = record_video(policy, record_envs, args.env_type)
             wandb.video(videos, global_step)
         if args.save_agent:
             wandb.save_agent(agent, global_step)
