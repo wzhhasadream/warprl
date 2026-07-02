@@ -143,7 +143,7 @@ class RainbowSACAgent:
         self.cached_key = jax.random.PRNGKey(0)
         self.repeat_count = 0
         self.repeat_n = 1
-        self.critic_grad_updates = jnp.array(0, dtype=jnp.int32)
+        self.critic_grad_updates = 0
 
 
     def get_action(self, obs: jax.Array | np.ndarray):
@@ -173,19 +173,20 @@ class RainbowSACAgent:
         return self.replay_buffer.size >= getattr(self.cfg, "learning_starts") and self.replay_buffer.can_sample()
 
     def update(self):
-        batch_size = getattr(self.cfg, "batch_size") * getattr(self.cfg, "grad_step_per_interaction_step")
-        if isinstance(self.replay_buffer, JaxBuffer):
-            self._sample_key, sample_key = jax.random.split(self._sample_key, 2)
-            batch = self.replay_buffer.sample(sample_key, batch_size)
-        else:
-            batch = self.replay_buffer.sample(batch_size)
+        self._sample_key, sample_key = jax.random.split(self._sample_key, 2)
+        batch = self.replay_buffer.sample(sample_key, getattr(self.cfg, "batch_size"))
         self._update_key, update_key = jax.random.split(self._update_key)
-        self.critic_grad_updates, info = self._update_fn(
-            self.critic_grad_updates,
+        do_policy_update = self.critic_grad_updates % self.cfg.policy_frequency == 0
+        do_target_update = self.critic_grad_updates  % self.cfg.target_frequency == 0
+        info = self._update_fn(
+            do_policy_update,
+            do_target_update,
             self.reward_normalizer,
             update_key,
             batch,
         )
+
+        self.critic_grad_updates += 1
         return info
 
 

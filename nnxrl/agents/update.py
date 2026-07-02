@@ -228,7 +228,7 @@ def update_policy(
 def make_update_rainbowsac(config: RainbowSACConfig):
     """Create a jitted RainbowSAC update function with config captured by closure."""
 
-    @nnx.jit
+    @nnx.jit(static_argnames=('do_policy_update', 'do_target_update'))
     def update_rainbowsac(
         critic: FlashSACDoubleCritic,
         actor: FlashSACActor,
@@ -237,123 +237,30 @@ def make_update_rainbowsac(config: RainbowSACConfig):
         alpha_opt: nnx.Optimizer,
         critic_opt: nnx.Optimizer,
         target_critic: FlashSACDoubleCritic,
-        critic_grad_updates: jax.Array,
+        do_policy_update: bool,
+        do_target_update: bool,
         reward_normalizer: RewardNormalizer | None,
         key: jax.Array,
-        big_batch: Batch,
+        batch: Batch,
     ):
         """Run multiple SGD steps per environment step."""
         if config.asymmetric_obs:
             assert actor.obs_dim != critic.critic.obs_dim
 
         if config.normalize_rewards and reward_normalizer is not None:
-            normalized_rewards = reward_normalizer.normalize(big_batch.rewards)
-            big_batch = big_batch._replace(rewards=normalized_rewards)
+            normalized_rewards = reward_normalizer.normalize(batch.rewards)
+            batch = batch._replace(rewards=normalized_rewards)
+        policy_key, critic_key = jax.random.split(key, 2)
+        if do_policy_update:
+            policy_info = update_policy(critic, actor, actor_opt, alpha, alpha_opt, config, batch, policy_key)
+        else:
+            policy_info = {}
 
-        batches = jax.tree.map(
-            lambda x: x.reshape(
-                config.grad_step_per_interaction_step, config.batch_size, *x.shape[1:]),
-            big_batch,
-        )
+        critic_info = update_critic(actor, critic, alpha, critic_opt, target_critic, config, batch, critic_key)
 
-        update_keys = jax.random.split(
-            key, config.grad_step_per_interaction_step)
+        if do_target_update:
+            soft_update(critic, target_critic, config.tau)
 
-        @nnx.scan(in_axes=(nnx.Carry, 0, 0), out_axes=(nnx.Carry, 0))
-        def update_minibatch(carry, sub_batch: Batch, key: jax.Array):
-            (
-                critic,
-                actor,
-                actor_opt,
-                alpha,
-                alpha_opt,
-                critic_opt,
-                target_critic,
-                critic_grad_updates,
-            ) = carry
-            policy_key, critic_key = jax.random.split(key, 2)
-            alpha_value = alpha()
-
-            policy_info = nnx.cond(
-                critic_grad_updates % config.policy_frequency == 0,
-                lambda critic, actor, actor_opt, alpha, alpha_opt: update_policy(
-                    critic,
-                    actor,
-                    actor_opt,
-                    alpha,
-                    alpha_opt,
-                    config,
-                    sub_batch,
-                    policy_key,
-                ),
-                lambda critic, actor, actor_opt, alpha, alpha_opt: {
-                    "training/actor_loss": jnp.array(0.0),
-                    "training/alpha_loss": jnp.array(0.0),
-                    "training/alpha_value": alpha_value,
-                    "training/entropy": jnp.array(0.0)
-                },
-                critic,
-                actor,
-                actor_opt,
-                alpha,
-                alpha_opt,
-            )
-            critic_info = update_critic(
-                actor,
-                critic,
-                alpha,
-                critic_opt,
-                target_critic,
-                config,
-                sub_batch,
-                critic_key,
-            )
-            next_critic_grad_updates = critic_grad_updates + 1
-            nnx.cond(
-                next_critic_grad_updates % config.target_frequency == 0,
-                lambda critic, target_critic: soft_update(
-                    critic, target_critic, config.tau),
-                lambda critic, target_critic: None,
-                critic, target_critic,
-            )
-
-            info = {**critic_info, **policy_info}
-            next_carry = (
-                critic,
-                actor,
-                actor_opt,
-                alpha,
-                alpha_opt,
-                critic_opt,
-                target_critic,
-                next_critic_grad_updates,
-            )
-            return next_carry, info
-
-        init_carry = (
-            critic,
-            actor,
-            actor_opt,
-            alpha,
-            alpha_opt,
-            critic_opt,
-            target_critic,
-            critic_grad_updates,
-        )
-        (
-            critic,
-            actor,
-            actor_opt,
-            alpha,
-            alpha_opt,
-            critic_opt,
-            target_critic,
-            critic_grad_updates,
-        ), infos = update_minibatch(init_carry, batches, update_keys)
-        info = jax.tree.map(lambda x: x[-1], infos)
-        return (
-            critic_grad_updates,
-            info,
-        )
+        return {**policy_info, **critic_info}
 
     return update_rainbowsac

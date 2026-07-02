@@ -99,6 +99,7 @@ def main():
 
     obs, info = train_envs.reset(seed=args.seed)
     eval_and_log(agent, 0)
+    update_counter = 0
     for interaction_step in tqdm.tqdm(range(1, int(args.num_interaction_steps + 1)), smoothing=0.1, mininterval=0.5):
         if not agent.can_update:
             actions = train_envs.action_space.sample()
@@ -124,8 +125,13 @@ def main():
 
         agent.process_transition(transitions)
         if agent.can_update:
-            info = agent.update()
-            if interaction_step % args.log_frequency == 0:
+            update_counter += args.grad_step_per_interaction_step
+            did_update = False
+            while update_counter >= 1:
+                info = agent.update()
+                update_counter -= 1
+                did_update = True
+            if did_update and interaction_step % args.log_frequency == 0:
                 wandb.log(info, interaction_step * args.num_envs)
         
             if interaction_step % args.eval_frequency == 0:
