@@ -29,33 +29,33 @@ class TorchBuffer(BaseBuffer):
     def __init__(
         self,
         observation_space: spaces.Space,
-        action_shape_space: spaces.Space,
+        action_space: spaces.Space,
         max_size: int = int(1e6),
         linear_decay_step: int = 0,
         min_weight: float = 0.1,
         n_step: int = 1,
         gamma: float = 0.99,
-        n_envs: int = 1,
+        num_envs: int = 1,
         use_approximate_sampling: bool = True,
         num_buckets: int = 2000,
         device: str | torch.device = "cuda:0",
     ):
-        super().__init__(observation_space, action_shape_space, max_size)
+        super().__init__(observation_space, action_space, max_size)
         self.linear_decay_step = linear_decay_step
         self.abs_linear_decay_step = abs(linear_decay_step)
         self.n_step = n_step
         self.gamma = gamma
         self.min_weight = min_weight
-        self.n_envs = n_envs
+        self.num_envs = num_envs
         self.use_approximate_sampling = (
-            use_approximate_sampling and self.max_size % self.n_envs == 0
+            use_approximate_sampling and self.max_size % self.num_envs == 0
         )
         self.num_buckets = num_buckets
         self.device = torch.device(device)
 
         assert self.n_step >= 1, f"n_step must be positive, got {self.n_step}"
-        assert self.n_envs >= 1, f"n_envs must be positive, got {self.n_envs}"
-        assert self.max_size >= self.n_envs, f"max_size must be >= n_envs, got {self.max_size} and {self.n_envs}"
+        assert self.num_envs >= 1, f"num_envs must be positive, got {self.num_envs}"
+        assert self.max_size >= self.num_envs, f"max_size must be >= num_envs, got {self.max_size} and {self.num_envs}"
         assert self.num_buckets >= 1, f"num_buckets must be positive, got {self.num_buckets}"
         assert 0 <= self.min_weight <= 1, f"min_weight must be in [0, 1], got {self.min_weight}"
 
@@ -83,13 +83,13 @@ class TorchBuffer(BaseBuffer):
     def _as_transition(self, transition: Transition) -> Transition:
         return Transition(
             observations=self._tensor(
-                transition.observations, self.obsverations.dtype, (self.n_envs, *self.obsveration_shape)),
-            actions=self._tensor(transition.actions, self.actions.dtype, (self.n_envs, *self.action_shape)),
-            rewards=self._tensor(transition.rewards, torch.float32, (self.n_envs,)),
-            truncations=self._tensor(transition.truncations, torch.float32, (self.n_envs,)),
-            terminations=self._tensor(transition.terminations, torch.float32, (self.n_envs,)),
+                transition.observations, self.obsverations.dtype, (self.num_envs, *self.obsveration_shape)),
+            actions=self._tensor(transition.actions, self.actions.dtype, (self.num_envs, *self.action_shape)),
+            rewards=self._tensor(transition.rewards, torch.float32, (self.num_envs,)),
+            truncations=self._tensor(transition.truncations, torch.float32, (self.num_envs,)),
+            terminations=self._tensor(transition.terminations, torch.float32, (self.num_envs,)),
             next_observations=self._tensor(
-                transition.next_observations, self.next_obsverations.dtype, (self.n_envs, *self.obsveration_shape)),
+                transition.next_observations, self.next_obsverations.dtype, (self.num_envs, *self.obsveration_shape)),
         )
 
     def _get_n_step_transition(self) -> tuple[Transition, torch.Tensor]:
@@ -100,7 +100,7 @@ class TorchBuffer(BaseBuffer):
         n_step_termination = curr_transition.terminations.clone()
         n_step_truncation = curr_transition.truncations.clone()
         n_step_next_observation = curr_transition.next_observations.clone()
-        effective_n_steps = torch.ones((self.n_envs,), dtype=torch.float32, device=self.device)
+        effective_n_steps = torch.ones((self.num_envs,), dtype=torch.float32, device=self.device)
 
         for idx in reversed(range(len(self.deque) - 1)):
             transition = self.deque[idx]

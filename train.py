@@ -17,9 +17,9 @@ import tqdm
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab'] = "auto"
 
-    env_id: str = "humanoid-run"
+    env_id: str = "FishSwim"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'dmc'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'playground'
 
     seed: int = 1
 
@@ -36,6 +36,7 @@ class Args:
     n_step: int | None = None
     buffer_device: Literal["cpu", "cuda"] | None = None
     eval_episode: int | None = None
+    num_eval_envs: int | None = None
     #######################################################
     eval_frequency: int | None = None
     log_frequency: int | None = None
@@ -71,6 +72,8 @@ class Args:
             self.log_frequency = self.num_interaction_steps // 50
 
 
+
+
 def main():
     print("🚀 RainBowsac training")
     print("=" * 60)
@@ -83,7 +86,14 @@ def main():
     render_mode = "rgb_array" if args.record_video else None
 
     train_envs, eval_envs, record_envs = create_envs(
-        args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed, render_mode=render_mode)
+        args.env_id,
+        args.env_type,
+        num_train_envs=args.num_envs,
+        num_eval_envs=args.num_eval_envs,
+        action_repeat=args.action_repeat,
+        seed=args.seed,
+        render_mode=render_mode,
+    )
 
     agent = RainbowSACAgent(train_envs, args)
 

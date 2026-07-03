@@ -8,30 +8,30 @@ from .__init__ import Batch, Transition
 class NumpyBuffer(BaseBuffer):
     def __init__(self,
         observation_space: spaces.Space,
-        action_shape_space: spaces.Space,
+        action_space: spaces.Space,
         max_size: int = int(1e6),
         linear_decay_step: int = 0,
         min_weight: float = 0.1,
         n_step: int = 1,
         gamma: float = 0.99,
-        n_envs: int = 1,
+        num_envs: int = 1,
         use_approximate_sampling: bool = True,
         num_buckets: int = 2000,
     ):
-        super().__init__(observation_space, action_shape_space, max_size)
+        super().__init__(observation_space, action_space, max_size)
         self.linear_decay_step = linear_decay_step
         self.abs_linear_decay_step = abs(linear_decay_step)
         self.n_step = n_step
         self.gamma = gamma
         self.min_weight = min_weight
-        self.n_envs = n_envs
+        self.num_envs = num_envs
         self.use_approximate_sampling = (
-            use_approximate_sampling and self.max_size % self.n_envs == 0
+            use_approximate_sampling and self.max_size % self.num_envs == 0
         )
         self.num_buckets = num_buckets
         assert self.n_step >= 1, f"n_step must be positive, got {self.n_step}"
-        assert self.n_envs >= 1, f"n_envs must be positive, got {self.n_envs}"
-        assert self.max_size >= self.n_envs, f"max_size must be >= n_envs, got {self.max_size} and {self.n_envs}"
+        assert self.num_envs >= 1, f"num_envs must be positive, got {self.num_envs}"
+        assert self.max_size >= self.num_envs, f"max_size must be >= num_envs, got {self.max_size} and {self.num_envs}"
         assert self.num_buckets >= 1, f"num_buckets must be positive, got {self.num_buckets}"
         assert 0 <= self.min_weight <= 1, f"min_weight must be in [0, 1], got {self.min_weight}"
         self.obsverations = np.empty((self.max_size, * self.obsveration_shape), dtype=self.obsveration_space.dtype)
@@ -53,14 +53,14 @@ class NumpyBuffer(BaseBuffer):
     def _as_transition(self, transition: Transition) -> Transition:
         return Transition(
             observations=np.asarray(transition.observations, dtype=self.obsveration_space.dtype).reshape(
-                self.n_envs, *self.obsveration_shape),
+                self.num_envs, *self.obsveration_shape),
             actions=np.asarray(transition.actions, dtype=self.action_space.dtype).reshape(
-                self.n_envs, *self.action_shape),
-            rewards=np.asarray(transition.rewards, dtype=np.float32).reshape(self.n_envs),
-            truncations=np.asarray(transition.truncations, dtype=np.float32).reshape(self.n_envs),
-            terminations=np.asarray(transition.terminations, dtype=np.float32).reshape(self.n_envs),
+                self.num_envs, *self.action_shape),
+            rewards=np.asarray(transition.rewards, dtype=np.float32).reshape(self.num_envs),
+            truncations=np.asarray(transition.truncations, dtype=np.float32).reshape(self.num_envs),
+            terminations=np.asarray(transition.terminations, dtype=np.float32).reshape(self.num_envs),
             next_observations=np.asarray(transition.next_observations, dtype=self.obsveration_space.dtype).reshape(
-                self.n_envs, *self.obsveration_shape),
+                self.num_envs, *self.obsveration_shape),
         )
 
     def _get_n_step_transition(self) -> tuple[Transition, np.ndarray]:

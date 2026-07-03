@@ -16,7 +16,8 @@ PROFILE_DEFAULTS = {
         compute_type='float32',
         n_step=1,
         buffer_device="cpu",
-        eval_episode=50
+        eval_episode=50,
+        num_eval_envs=1
     ),
     "playground": dict(
         num_envs=1024,
@@ -30,7 +31,8 @@ PROFILE_DEFAULTS = {
         compute_type='bfloat16',
         n_step=1,
         buffer_device="cuda",
-        eval_episode=50
+        eval_episode=50,
+        num_eval_envs=50
     ),
     "maniskill": dict(
         num_envs=1024,
@@ -44,7 +46,8 @@ PROFILE_DEFAULTS = {
         compute_type='bfloat16',
         n_step=1,
         buffer_device="cuda",
-        eval_episode=50
+        eval_episode=50,
+        num_eval_envs=50
     ),
     "isaaclab": dict(
         num_envs=1024,
@@ -58,7 +61,9 @@ PROFILE_DEFAULTS = {
         compute_type='bfloat16',
         n_step=3,
         buffer_device="cuda",
-        eval_episode=1024
+        eval_episode=1024,
+        # IsaacLab reuses the training vector env for evaluation, so eval envs match train envs.
+        num_eval_envs=1024,
     ),
 }
 
