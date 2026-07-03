@@ -80,7 +80,7 @@ def main():
 
     wandb.init(project=args.log_path, name=f"{args.env_id}", config=vars(args))
 
-    render_mode = "rgb_array" if (args.record_video and args.env_type != "isaaclab") else None
+    render_mode = "rgb_array" if args.record_video else None
 
     train_envs, eval_envs, record_envs = create_envs(
         args.env_id, args.env_type, num_train_envs=args.num_envs, action_repeat=args.action_repeat, seed=args.seed, render_mode=render_mode)

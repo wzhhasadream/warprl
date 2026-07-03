@@ -174,20 +174,31 @@ class Run:
         print(f"Run finished. Data saved to: {self.run_dir}")
 
 
-    def video(self, videos: np.ndarray, step: int, fps: int = 30):
+    def video(self, videos: np.ndarray, step: int, fps: int = 30, fmt: str = 'mp4'):
         import imageio.v2 as imageio
+        fmt = fmt.removeprefix(".").lower()
         self.video_path = os.path.join(self.run_dir, 'video', f'step_{step}')
         os.makedirs(self.video_path, exist_ok=True)
-        duration = int(round(1000 / fps))
-        if videos.ndim == 5:
-            # [B, T, H, W, C] -> save each video as one gif
-            for i, frames in enumerate(videos):
-                path = os.path.join(self.video_path, f"video_{i}.gif")
+
+        def save_frames(frames: np.ndarray, name: str) -> None:
+            path = os.path.join(self.video_path, f"{name}.{fmt}")
+            if fmt == "gif":
+                duration = int(round(1000 / fps))
                 imageio.mimsave(path, frames, duration=duration)
+            elif fmt == "mp4":
+                imageio.mimsave(path, frames, fps=fps)
+            else:
+                raise ValueError(f"Unsupported video format: {fmt}")
+
+        if videos.ndim == 5:
+            # [B, T, H, W, C] -> save each video.
+            for i, frames in enumerate(videos):
+                save_frames(frames, f"video_{i}")
         elif videos.ndim == 4:
-            # [T, H, W, C] -> save one gif
-            path  = os.path.join(self.video_path, f"video.gif")
-            imageio.mimsave(path, frames, duration=duration)
+            # [T, H, W, C] -> save one video.
+            save_frames(videos, "video")
+        else:
+            raise ValueError(f"Expected video array with 4 or 5 dims, got shape {videos.shape}")
 
     def save_agent(self, agent, step: int):
         model_path = os.path.join(self.run_dir, f"model")
@@ -227,10 +238,10 @@ def log(data: Dict[str, Union[float, int]], step: Optional[int] = None, commit: 
     _current_run.log(data, step, commit)
 
 
-def video(videos: np.ndarray, step: int, fps: int = 30):
+def video(videos: np.ndarray, step: int, fps: int = 30, fmt: str = "mp4"):
     if _current_run is None:
         raise RuntimeError("No active run. Call init() first.")
-    _current_run.video(videos, step, fps)
+    _current_run.video(videos, step, fps, fmt)
 
 
 def save_agent(agent, step: int):
