@@ -1,7 +1,7 @@
 import nnxrl.utils.logger as wandb
 from typing import Literal
 from nnxrl.agents import RainbowSACAgent
-from nnxrl.env import create_envs, isaaclab
+from nnxrl.env import create_envs
 from nnxrl.utils import (
     evaluate_policy, 
     replace_done_next_obs, 
@@ -99,8 +99,8 @@ def main():
         if args.save_agent:
             wandb.save_agent(agent, global_step)
 
-    obs, info = train_envs.reset(seed=args.seed)
     eval_and_log(agent, 0)
+    obs, info = train_envs.reset(seed=args.seed)
     update_counter = 0
     for interaction_step in tqdm.tqdm(range(1, int(args.num_interaction_steps + 1)), smoothing=0.1, mininterval=0.5):
         if not agent.can_update:
