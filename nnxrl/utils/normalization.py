@@ -129,12 +129,12 @@ class RewardNormalizer:
             use_max_bound=use_max_bound,
         )
 
-    def update(self, rewards: jax.Array, dones: jax.Array) -> "RewardNormalizer":
+    def update(self, rewards: jax.Array, episode_dones: jax.Array) -> "RewardNormalizer":
         """Update discounted-return statistics from one environment step."""
         rewards = jnp.asarray(rewards, dtype=jnp.float32).reshape(self.g.shape)
-        dones = jnp.asarray(dones, dtype=jnp.float32).reshape(self.g.shape)
+        episode_dones = jnp.asarray(episode_dones, dtype=jnp.float32).reshape(self.g.shape)
 
-        g = self.gamma * (1.0 - dones) * self.g + rewards
+        g = self.gamma * (1.0 - episode_dones) * self.g + rewards
         g_rms = self.g_rms.update(g)
         g_abs_max = jnp.maximum(self.g_abs_max, jnp.max(jnp.abs(g)))
         return self.replace(g=g, g_rms=g_rms, g_abs_max=g_abs_max)

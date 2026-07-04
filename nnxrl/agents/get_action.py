@@ -42,8 +42,10 @@ def get_exploration_action(
 def update_reward_normalizer(
     reward_normalizer: RewardNormalizer | None,
     rewards: jax.Array,
-    dones: jax.Array,
+    termiations: jax.Array,
+    truncations: jax.Array
 ) -> RewardNormalizer | None:
     if reward_normalizer is None:
         return None
-    return reward_normalizer.update(rewards, dones)
+    episode_dones = jnp.logical_or(termiations, truncations)
+    return reward_normalizer.update(rewards, episode_dones)

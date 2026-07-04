@@ -17,9 +17,9 @@ import tqdm
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab'] = "auto"
 
-    env_id: str = "FishSwim"
+    env_id: str = "h1-pole-v0"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'playground'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'humanoid_bench'
 
     seed: int = 1
 
@@ -111,7 +111,6 @@ def main():
 
     eval_and_log(agent, 0)
     obs, info = train_envs.reset(seed=args.seed)
-    update_counter = 0
     for interaction_step in tqdm.tqdm(range(1, int(args.num_interaction_steps + 1)), smoothing=0.1, mininterval=0.5):
         if not agent.can_update:
             actions = train_envs.action_space.sample()
@@ -137,13 +136,8 @@ def main():
 
         agent.process_transition(transitions)
         if agent.can_update:
-            update_counter += args.grad_step_per_interaction_step
-            did_update = False
-            while update_counter >= 1:
-                info = agent.update()
-                update_counter -= 1
-                did_update = True
-            if did_update and interaction_step % args.log_frequency == 0:
+            info = agent.update()
+            if interaction_step % args.log_frequency == 0:
                 wandb.log(info, interaction_step * args.num_envs)
         
             if interaction_step % args.eval_frequency == 0:

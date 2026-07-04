@@ -147,9 +147,9 @@ class RainbowSACAgent:
         self.learner_device = jax.devices("gpu")[0] if jax.devices("gpu") else jax.devices("cpu")[0]
 
         self.cached_key = jax.random.PRNGKey(0)
-        self.repeat_count = 0
-        self.repeat_n = 1
-        self.critic_grad_updates = 0
+        self.repeat_count = jnp.array(0, dtype=jnp.int32)
+        self.repeat_n = jnp.array(1, dtype=jnp.int32)
+        self.critic_grad_updates = jnp.array(0, dtype=jnp.int32)
 
 
     def get_action(self, obs: jax.Array | np.ndarray):
@@ -170,8 +170,7 @@ class RainbowSACAgent:
         return np.asarray(actions)
 
     def process_transition(self, transition: Transition) -> None:
-        dones = np.logical_or(transition.terminations, transition.truncations)
-        self.reward_normalizer = update_reward_normalizer(self.reward_normalizer, transition.rewards, dones)
+        self.reward_normalizer = update_reward_normalizer(self.reward_normalizer, transition.rewards, transition.terminations, transition.truncations)
         self.replay_buffer = self.replay_buffer.add(transition)
 
     @property
@@ -180,20 +179,19 @@ class RainbowSACAgent:
 
     def update(self):
         self._sample_key, sample_key = jax.random.split(self._sample_key, 2)
-        batch = self.replay_buffer.sample(sample_key, getattr(self.cfg, "batch_size"))
+        big_batch_size = getattr(self.cfg, "batch_size") * getattr(
+            self.cfg, "grad_step_per_interaction_step"
+        )
+        batch = self.replay_buffer.sample(sample_key, big_batch_size)
         batch = jax.tree.map(lambda x: jax.device_put(x, self.learner_device), batch)
         self._update_key, update_key = jax.random.split(self._update_key)
-        do_policy_update = self.critic_grad_updates % self.cfg.policy_frequency == 0
-        do_target_update = self.critic_grad_updates  % self.cfg.target_frequency == 0
-        info = self._update_fn(
-            do_policy_update,
-            do_target_update,
+        self.critic_grad_updates, info = self._update_fn(
+            self.critic_grad_updates,
             self.reward_normalizer,
             update_key,
             batch,
         )
 
-        self.critic_grad_updates += 1
         return info
 
 
