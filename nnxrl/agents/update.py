@@ -249,11 +249,6 @@ def make_update_rainbowsac(config: RainbowSACConfig):
             normalized_rewards = reward_normalizer.normalize(big_batch.rewards)
             big_batch = big_batch._replace(rewards=normalized_rewards)
 
-        batches = jax.tree.map(
-            lambda x: x.reshape(
-                config.grad_step_per_interaction_step, config.batch_size, *x.shape[1:]),
-            big_batch,
-        )
 
         update_keys = jax.random.split(
             key, config.grad_step_per_interaction_step)
@@ -348,7 +343,7 @@ def make_update_rainbowsac(config: RainbowSACConfig):
             critic_opt,
             target_critic,
             critic_grad_updates,
-        ), infos = update_minibatch(init_carry, batches, update_keys)
+        ), infos = update_minibatch(init_carry, big_batch, update_keys)
         info = jax.tree.map(lambda x: x[-1], infos)
         return (
             critic_grad_updates,

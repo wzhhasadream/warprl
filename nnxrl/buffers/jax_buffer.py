@@ -377,6 +377,21 @@ class JaxBuffer:
             discounts=self.discounts[indices, None],
         )
 
+    @partial(jax.jit, static_argnames=("batch_size",))
+    @partial(jax.vmap, in_axes=(None, 0, None))
+    def sample_multiple_batch(self, keys: jax.Array, batch_size: int) -> Batch:
+        indices = self._sample_indices(keys, batch_size)
+
+        return Batch(
+            observations=self.observations[indices],
+            actions=self.actions[indices],
+            rewards=self.rewards[indices, None],
+            dones=self.terminations[indices, None],
+            next_observations=self.next_observations[indices],
+            discounts=self.discounts[indices, None],
+        )
+
+
     def reset(self) -> "JaxBuffer":
         return self.replace(
             ptr=jnp.array(0, dtype=self.ptr.dtype, device=self.device),

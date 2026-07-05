@@ -179,10 +179,14 @@ class RainbowSACAgent:
 
     def update(self):
         self._sample_key, sample_key = jax.random.split(self._sample_key, 2)
-        big_batch_size = getattr(self.cfg, "batch_size") * getattr(
-            self.cfg, "grad_step_per_interaction_step"
+        sample_keys = jax.random.split(
+            sample_key,
+            getattr(self.cfg, "grad_step_per_interaction_step"),
         )
-        batch = self.replay_buffer.sample(sample_key, big_batch_size)
+        batch = self.replay_buffer.sample_multiple_batch(
+            sample_keys,
+            getattr(self.cfg, "batch_size"),
+        )
         batch = jax.tree.map(lambda x: jax.device_put(x, self.learner_device), batch)
         self._update_key, update_key = jax.random.split(self._update_key)
         self.critic_grad_updates, info = self._update_fn(

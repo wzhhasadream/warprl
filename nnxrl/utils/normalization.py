@@ -153,9 +153,6 @@ class RewardNormalizer:
         rewards = jnp.asarray(rewards, dtype=jnp.float32)
         denominator = self.denominator()
 
-        while denominator.ndim < rewards.ndim:
-            denominator = jnp.expand_dims(denominator, axis=-1)
-
         return rewards / denominator
 
     def update_and_normalize(
