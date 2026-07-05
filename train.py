@@ -17,9 +17,9 @@ import tqdm
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab'] = "auto"
 
-    env_id: str = "h1-pole-v0"
+    env_id: str = "FishSwim"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'humanoid_bench'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'playground'
 
     seed: int = 1
 
@@ -66,7 +66,11 @@ class Args:
         resolve_profile(self)
         self.num_interaction_steps = self.total_timesteps // self.num_envs
         if self.eval_frequency is None:
-            self.eval_frequency = self.num_interaction_steps // 20
+            if self.env_type == 'isaaclab':
+                # IsaacLab reuses train_envs for evaluation, so evaluate less frequently.
+                self.eval_frequency = self.num_interaction_steps // 10
+            else:
+                self.eval_frequency = self.num_interaction_steps // 20
 
         if self.log_frequency is None:
             self.log_frequency = self.num_interaction_steps // 50
