@@ -150,12 +150,12 @@ def main():
         obs = next_obs
 
     eval_and_log(agent, args.total_timesteps)
+    wandb.finish()
     train_envs.close()
     if eval_envs is not train_envs:
         eval_envs.close()
     if record_envs is not train_envs and record_envs is not eval_envs:
         record_envs.close()
-    wandb.finish()
 
 
 if __name__ == "__main__":
