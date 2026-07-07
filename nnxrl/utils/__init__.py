@@ -55,3 +55,11 @@ def replace_done_next_obs(
         real_next_obs[env_idx] = final_obs[env_idx]
 
     return real_next_obs
+
+
+def default_learner_device() -> jax.Device:
+    try:
+        gpu_devices = jax.devices("gpu")
+    except RuntimeError:
+        gpu_devices = []
+    return gpu_devices[0] if gpu_devices else jax.devices("cpu")[0]

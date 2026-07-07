@@ -13,6 +13,7 @@ from nnxrl.utils import (
     RewardNormalizer,
     load_states,
     save_states,
+    default_learner_device
 )
 from gymnasium.vector import VectorEnv
 from .get_action import (
@@ -23,12 +24,7 @@ from .get_action import (
 from .update import RainbowSACConfig, make_update_rainbowsac
 
 
-def _default_learner_device() -> jax.Device:
-    try:
-        gpu_devices = jax.devices("gpu")
-    except RuntimeError:
-        gpu_devices = []
-    return gpu_devices[0] if gpu_devices else jax.devices("cpu")[0]
+
 
 
 class RainbowSACAgent:
@@ -152,7 +148,7 @@ class RainbowSACAgent:
             else None
         )
 
-        self.learner_device = _default_learner_device()
+        self.learner_device = default_learner_device()
 
         self.cached_key = jax.random.PRNGKey(0)
         self.repeat_count = jnp.array(0, dtype=jnp.int32)
