@@ -33,17 +33,13 @@ def quantile_huber_loss(diff, taus, kappa: float = 1.0):
     return (weight * huber_loss / kappa).sum(axis=1).mean()
 
 
-@partial(jax.vmap, in_axes=(0, None, None))
-def quantile_loss(q_distributional, target_q_distributional, kappa: float = 1.0):
-    """Distributional quantile regression loss for an ensemble critic.
+def _quantile_loss_one_critic(q_distributional, target_q_distributional, kappa: float):
+    """Distributional quantile regression loss for one critic head.
 
-    Public call shapes:
-        q_distributional: [num_q, B, N]
-        target_q_distributional: [B, N]
-
-    Inside this vmapped function:
+    Args:
         q_distributional: [B, N]
         target_q_distributional: [B, N]
+        kappa: Huber threshold.
     """
     assert q_distributional.shape == target_q_distributional.shape, (
         "The shape of q_distributional and target_q_distributional should be the same"
@@ -53,6 +49,23 @@ def quantile_loss(q_distributional, target_q_distributional, kappa: float = 1.0)
                            dtype=q_distributional.dtype)
     diff = target_q_distributional[:, None, :] - q_distributional[:, :, None]
     return quantile_huber_loss(diff, taus, kappa)
+
+
+_vmapped_quantile_loss = jax.vmap(
+    _quantile_loss_one_critic,
+    in_axes=(0, None, None),
+)
+
+
+def quantile_loss(q_distributional, target_q_distributional, kappa: float = 1.0):
+    """Distributional quantile regression loss for an ensemble critic.
+
+    Args:
+        q_distributional: [num_q, B, N]
+        target_q_distributional: [B, N]
+        kappa: Huber threshold.
+    """
+    return _vmapped_quantile_loss(q_distributional, target_q_distributional, kappa)
 
 
 @lru_cache(maxsize=None)
