@@ -23,6 +23,14 @@ from .get_action import (
 from .update import RainbowSACConfig, make_update_rainbowsac
 
 
+def _default_learner_device() -> jax.Device:
+    try:
+        gpu_devices = jax.devices("gpu")
+    except RuntimeError:
+        gpu_devices = []
+    return gpu_devices[0] if gpu_devices else jax.devices("cpu")[0]
+
+
 class RainbowSACAgent:
     def __init__(
         self,
@@ -144,7 +152,7 @@ class RainbowSACAgent:
             else None
         )
 
-        self.learner_device = jax.devices("gpu")[0] if jax.devices("gpu") else jax.devices("cpu")[0]
+        self.learner_device = _default_learner_device()
 
         self.cached_key = jax.random.PRNGKey(0)
         self.repeat_count = jnp.array(0, dtype=jnp.int32)
