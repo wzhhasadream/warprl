@@ -15,11 +15,11 @@ import dataclasses
 import tqdm
 @dataclasses.dataclass
 class Args:
-    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab'] = "auto"
+    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab'] = "auto"
 
-    env_id: str = "FishSwim"
+    env_id: str = "h1-run-v0"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab'] = 'playground'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'humanoid_bench'
 
     seed: int = 1
 

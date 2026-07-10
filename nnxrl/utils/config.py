@@ -1,7 +1,7 @@
 from typing import Any
 
 CPU_ENV_TYPES = {"mujoco", "myosuite", "dmc", "humanoid_bench"}
-GPU_ENV_TYPES = {"playground", "isaaclab", "maniskill"}
+GPU_ENV_TYPES = {"playground", "isaaclab", "maniskill", "mjlab"}
 
 PROFILE_DEFAULTS = {
     "cpu_sim": dict(
@@ -64,6 +64,21 @@ PROFILE_DEFAULTS = {
         eval_episode=1024,
         # IsaacLab reuses the training vector env for evaluation, so eval envs match train envs.
         num_eval_envs=1024,
+    ),
+    "mjlab": dict(
+        num_envs=1024,
+        total_timesteps=50_000_896,
+        buffer_size=10_000_000,
+        learning_starts=100_000,
+        batch_size=2048,
+        grad_step_per_interaction_step=2,
+        gamma=0.99,
+        decay_step=2_000,
+        compute_type='bfloat16',
+        n_step=3,
+        buffer_device="cuda",
+        eval_episode=50,
+        num_eval_envs=1,
     ),
 }
 
