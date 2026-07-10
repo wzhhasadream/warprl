@@ -78,7 +78,7 @@ PROFILE_DEFAULTS = {
         n_step=3,
         buffer_device="cuda",
         eval_episode=50,
-        num_eval_envs=1,
+        num_eval_envs=50,
     ),
 }
 
