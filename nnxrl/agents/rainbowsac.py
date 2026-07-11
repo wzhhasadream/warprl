@@ -94,7 +94,7 @@ class RainbowSACAgent:
             action_space=self.action_space,
             observation_space=self.observation_space,
             num_envs=self.num_envs,
-            max_size=getattr(self.cfg, "buffer_size", 512),
+            max_size=getattr(self.cfg, "buffer_size", int(1e6)),
             linear_decay_step=getattr(self.cfg, "decay_step", 0),
             n_step=getattr(self.cfg, "n_step", 1),
             gamma=getattr(self.cfg, "gamma", 0.99),
