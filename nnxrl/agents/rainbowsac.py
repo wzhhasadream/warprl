@@ -23,7 +23,7 @@ from .get_action import (
     update_reward_normalizer,
 )
 from .update import RainbowSACConfig, make_update_rainbowsac
-import os
+from pathlib import Path
 
 
 
@@ -207,7 +207,8 @@ class RainbowSACAgent:
 
 
     def save(self, path: str) -> None:
-        os.makedirs(path, exist_ok=True)
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         save_states(str(output_path), {
             "actor": self.actor,
             "critic": self.critic,
@@ -222,8 +223,8 @@ class RainbowSACAgent:
         })
 
     def save_onnx(self, path: str):
-        os.makedirs(path, exist_ok=True)
-
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         import onnx
         from jax2onnx import to_onnx
         input_shape = ("B", *self.observation_space.shape)
@@ -239,7 +240,7 @@ class RainbowSACAgent:
 
 
         model = to_onnx(policy_fn, [input_shape])
-        onnx.save(model, path)
+        onnx.save(model, output_path)
 
 
     def load(self, path: str) -> None:

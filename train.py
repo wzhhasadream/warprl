@@ -56,7 +56,7 @@ class Args:
     normalize_parameters: Literal[True, False] = True
     normalize_rewards: Literal[True, False] = True
     use_bias: Literal[True, False] = False
-    record_video: Literal[True, False] = True
+    record_video: Literal[True, False] = False
     save_agent: Literal[True, False] = False
     save_onnx: Literal[True, False] = True
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
@@ -67,11 +67,7 @@ class Args:
         resolve_profile(self)
         self.num_interaction_steps = self.total_timesteps // self.num_envs
         if self.eval_frequency is None:
-            if self.env_type == 'isaaclab':
-                # IsaacLab reuses train_envs for evaluation, so evaluate less frequently.
-                self.eval_frequency = self.num_interaction_steps // 10
-            else:
-                self.eval_frequency = self.num_interaction_steps // 20
+            self.eval_frequency = self.num_interaction_steps // 20
 
         if self.log_frequency is None:
             self.log_frequency = self.num_interaction_steps // 50
