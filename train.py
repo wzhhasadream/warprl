@@ -82,7 +82,6 @@ def main():
     args = tyro.cli(Args)
     np.random.seed(args.seed)
 
-    wandb.init(project=args.log_path, name=f"{args.env_id}", config=vars(args))
 
     render_mode = "rgb_array" if args.record_video else None
 
@@ -97,7 +96,12 @@ def main():
     )
 
     agent = RainbowSACAgent(train_envs, args)
-
+    extra_infos = agent.observation_debug_info
+    wandb.init(
+        project=args.log_path,
+        name=f"{args.env_id}",
+        config={**vars(args), **agent.observation_debug_info},
+    )
 
     def eval_and_log(agent, global_step):
         def policy(obs):

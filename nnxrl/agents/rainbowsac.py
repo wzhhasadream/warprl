@@ -32,7 +32,7 @@ class RainbowSACAgent:
         self,
         envs: VectorEnv,
         cfg: RainbowSACConfig,
-    ):
+    ) -> dict[str, int | bool]:
         self.cfg = cfg
         self.observation_space = envs.single_observation_space
         self.action_space = envs.single_action_space
@@ -52,6 +52,14 @@ class RainbowSACAgent:
 
         self._action_key, self._update_key, self._sample_key = jax.random.split(jax.random.PRNGKey(getattr(cfg, "seed")), 3)
 
+
+    @property
+    def observation_debug_info(self) -> dict[str, int | bool]:
+        return {
+            "asymmetric_obs": self.asymmetric_obs,
+            "actor_input_dim": self.actor_observation_dim,
+            "critic_input_dim": self.critic_observation_dim,
+        }
 
     def _init_cached_fn(self):
         update_fn = make_update_rainbowsac(self.cfg)
@@ -227,15 +235,10 @@ class RainbowSACAgent:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         import onnx
         from jax2onnx import to_onnx
-        input_shape = ("B", *self.observation_space.shape)
+        input_shape = ("B", self.actor_observation_dim)
 
         def policy_fn(obs: jax.Array) -> jax.Array:
-            obs = obs.reshape((-1,) + self.observation_space.shape)
-            actor_obs = select_actor_observations(
-                obs,
-                self.asymmetric_obs,
-                self.actor_observation_dim,
-            )
+            actor_obs = obs.reshape((-1, self.actor_observation_dim))
             return self.actor.get_mean_action(actor_obs)
 
 
