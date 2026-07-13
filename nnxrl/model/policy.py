@@ -2,14 +2,14 @@ from dataclasses import dataclass
 from typing import Any, Optional
 import jax
 import jax.numpy as jnp
-from tensorflow_probability.substrates import jax as tfp
-
-tfd = tfp.distributions
-tfb = tfp.bijectors
 
 
-
-def _as_float_array(x: jax.Array) -> jax.Array:
+def _as_float_array(x: Any) -> jax.Array:
+    if hasattr(x, "get_value"):
+        try:
+            x = x[...]
+        except TypeError:
+            x = x.get_value()
     return jnp.asarray(x, dtype=jnp.float32)
 
 
@@ -30,13 +30,6 @@ def flattened_dim(spec: Any) -> int:
     raise TypeError(f"Unsupported observation size spec type: {type(spec)}")
 
 
-def split_observation(observations: Any) -> tuple[jax.Array, jax.Array]:
-    """Extract actor and critic inputs from observations."""
-    if isinstance(observations, dict):
-        actor_obs = observations.get("state")
-        critic_obs = observations.get("privileged_state")
-        return actor_obs, critic_obs
-    return observations, observations
 
 
 def action_scale_bias(action_low: jax.Array, action_high: jax.Array) -> tuple[jax.Array, jax.Array]:
@@ -50,10 +43,33 @@ def action_scale_bias(action_low: jax.Array, action_high: jax.Array) -> tuple[ja
     return scale, bias
 
 
-def make_action_affine_bijector(action_low: jax.Array, action_high: jax.Array) -> tfb.Bijector:
-    """Creates an affine bijector that maps [-1, 1] -> [low, high]."""
-    scale, bias = action_scale_bias(action_low, action_high)
-    return tfb.Chain([tfb.Shift(shift=bias), tfb.Scale(scale=scale)])
+@dataclass(frozen=True)
+class ActionAffineTransform:
+    """Affine transform that maps [-1, 1] to [action_low, action_high]."""
+
+    action_low: jax.Array
+    action_high: jax.Array
+
+    def forward(self, x: jax.Array) -> jax.Array:
+        scale, bias = action_scale_bias(self.action_low, self.action_high)
+        return x * scale + bias
+
+    def inverse(self, y: jax.Array) -> jax.Array:
+        scale, bias = action_scale_bias(self.action_low, self.action_high)
+        return (y - bias) / scale
+
+    def forward_log_det_jacobian(self, event_ndims: int = 1) -> jax.Array:
+        del event_ndims
+        scale, _ = action_scale_bias(self.action_low, self.action_high)
+        log_scale = jnp.log(jnp.abs(scale))
+        if jnp.ndim(log_scale) == 0:
+            return log_scale
+        return jnp.sum(log_scale, axis=-1)
+
+
+def make_action_affine_bijector(action_low: jax.Array, action_high: jax.Array) -> ActionAffineTransform:
+    """Creates an affine transform that maps [-1, 1] to [low, high]."""
+    return ActionAffineTransform(action_low, action_high)
 
 
 def unbounded_to_action(
@@ -128,6 +144,130 @@ def diagonal_gaussian_kl(mu_c: jax.Array, std_c: jax.Array, mu_o: jax.Array, std
     return kl.sum(axis=-1)
 
 
+def _diagonal_gaussian_log_prob(
+    value: jax.Array,
+    mean: jax.Array,
+    log_std: jax.Array,
+) -> jax.Array:
+    log_two_pi = jnp.log(jnp.asarray(2.0 * jnp.pi, dtype=value.dtype))
+    normalized = (value - mean) * jnp.exp(-log_std)
+    per_dim = -0.5 * jnp.square(normalized) - log_std - 0.5 * log_two_pi
+    return jnp.sum(per_dim, axis=-1)
+
+
+@dataclass(frozen=True)
+class CategoricalDistribution:
+    """Small JAX categorical distribution compatible with the policy API."""
+
+    logits: jax.Array
+
+    def sample(self, seed: jax.Array) -> jax.Array:
+        return jax.random.categorical(seed, self.logits, axis=-1).astype(jnp.int32)
+
+    def log_prob(self, value: jax.Array) -> jax.Array:
+        value = jnp.asarray(value, dtype=jnp.int32)
+        log_probs = jax.nn.log_softmax(self.logits, axis=-1)
+        return jnp.take_along_axis(log_probs, value[..., None], axis=-1)[..., 0]
+
+    def entropy(self) -> jax.Array:
+        log_probs = jax.nn.log_softmax(self.logits, axis=-1)
+        probs = jnp.exp(log_probs)
+        return -jnp.sum(probs * log_probs, axis=-1)
+
+
+@dataclass(frozen=True)
+class DiagonalGaussianDistribution:
+    """Small JAX diagonal Gaussian distribution compatible with the policy API."""
+
+    mean: jax.Array
+    log_std: jax.Array
+
+    def sample(self, seed: jax.Array) -> jax.Array:
+        noise = jax.random.normal(seed, self.mean.shape, dtype=self.mean.dtype)
+        return self.mean + jnp.exp(self.log_std) * noise
+
+    def log_prob(self, value: jax.Array) -> jax.Array:
+        return _diagonal_gaussian_log_prob(value, self.mean, self.log_std)
+
+    def entropy(self) -> jax.Array:
+        return jnp.sum(
+            self.log_std + 0.5 * jnp.log(jnp.asarray(2.0 * jnp.pi * jnp.e, dtype=self.log_std.dtype)),
+            axis=-1,
+        )
+
+
+@dataclass(frozen=True)
+class SquashedTanhGaussianDistribution:
+    """Tanh-squashed diagonal Gaussian distribution with affine action scaling."""
+
+    mean: jax.Array
+    log_std: jax.Array
+    action_low: jax.Array
+    action_high: jax.Array
+    eps: float = 1e-6
+
+    def sample(self, seed: jax.Array) -> jax.Array:
+        noise = jax.random.normal(seed, self.mean.shape, dtype=self.mean.dtype)
+        pre_tanh = self.mean + jnp.exp(self.log_std) * noise
+        return unbounded_to_action(
+            pre_tanh,
+            action_low=self.action_low,
+            action_high=self.action_high,
+        )
+
+    def log_prob(self, value: jax.Array) -> jax.Array:
+        pre_tanh = action_to_unbounded(
+            value,
+            action_low=self.action_low,
+            action_high=self.action_high,
+            eps=self.eps,
+        )
+        pre_log_prob = _diagonal_gaussian_log_prob(pre_tanh, self.mean, self.log_std)
+        _, log_prob = squash_tanh_action(
+            pre_tanh,
+            pre_log_prob,
+            self.action_low,
+            self.action_high,
+        )
+        return log_prob
+
+
+@dataclass(frozen=True)
+class AffineBetaDistribution:
+    """Independent beta distribution per action dimension mapped to action bounds."""
+
+    alpha: jax.Array
+    beta: jax.Array
+    action_low: jax.Array
+    action_high: jax.Array
+    eps: float = 1e-6
+
+    def sample(self, seed: jax.Array) -> jax.Array:
+        unit_action = jax.random.beta(seed, self.alpha, self.beta)
+        scale, bias = action_scale_bias(self.action_low, self.action_high)
+        return unit_action * (2.0 * scale) + (bias - scale)
+
+    def log_prob(self, value: jax.Array) -> jax.Array:
+        scale, bias = action_scale_bias(self.action_low, self.action_high)
+        unit_action = (value - (bias - scale)) / (2.0 * scale)
+        unit_action = jnp.clip(unit_action, self.eps, 1.0 - self.eps)
+        log_beta = (
+            jax.scipy.special.gammaln(self.alpha)
+            + jax.scipy.special.gammaln(self.beta)
+            - jax.scipy.special.gammaln(self.alpha + self.beta)
+        )
+        per_dim = (
+            (self.alpha - 1.0) * jnp.log(unit_action)
+            + (self.beta - 1.0) * jnp.log1p(-unit_action)
+            - log_beta
+        )
+        log_det = jnp.log(jnp.abs(2.0 * scale))
+        if jnp.ndim(log_det) == 0:
+            log_det = value.shape[-1] * log_det
+        else:
+            log_det = jnp.sum(log_det, axis=-1)
+        return jnp.sum(per_dim, axis=-1) - log_det
+
 
 
 
@@ -159,11 +299,11 @@ class MaskedCategoricalPolicy:
 
     invalid_logit: float = -1e9
 
-    def dist(self, logits: jax.Array, legal_action_mask: Optional[jax.Array] = None) -> tfd.Distribution:
+    def dist(self, logits: jax.Array, legal_action_mask: Optional[jax.Array] = None) -> CategoricalDistribution:
         masked_logits = mask_logits(
             logits, legal_action_mask, invalid_logit=self.invalid_logit
         )
-        return tfd.Categorical(logits=masked_logits)
+        return CategoricalDistribution(masked_logits)
 
     def sample_and_log_prob(
         self,
@@ -191,11 +331,10 @@ class GaussianPolicy:
     log_std_max: float = 2.0
     squash_log_std: bool = False
 
-    def dist(self, mean: jax.Array, log_std: jax.Array) -> tfd.Distribution:
+    def dist(self, mean: jax.Array, log_std: jax.Array) -> DiagonalGaussianDistribution:
         if self.squash_log_std:
             log_std = self.transform_log_std(log_std)
-        std = jnp.exp(log_std)
-        return tfd.MultivariateNormalDiag(loc=mean, scale_diag=std)
+        return DiagonalGaussianDistribution(mean, log_std)
 
     def sample_and_log_prob(
         self, mean: jax.Array, log_std: jax.Array, key: jax.Array
@@ -221,29 +360,30 @@ class SquashedTanhGaussianPolicy:
     log_std_max: float = 2.0
     squash_log_std: bool = True
 
-    def dist(self, mean: jax.Array, log_std: jax.Array) -> tfd.Distribution:
+    def dist(self, mean: jax.Array, log_std: jax.Array) -> SquashedTanhGaussianDistribution:
         if self.squash_log_std:
             log_std = self.transform_log_std(log_std)
-        std = jnp.exp(log_std)
-        base = tfd.MultivariateNormalDiag(loc=mean, scale_diag=std)
-        scale, bias = action_scale_bias(self.action_low, self.action_high)
-        # Note: TFP's Tanh bijector accounts for the log-det Jacobian in log_prob.
-        bijector = tfb.Chain(
-            [
-                tfb.Shift(shift=bias),
-                tfb.Scale(scale=scale),
-                tfb.Tanh(),
-            ]
+        return SquashedTanhGaussianDistribution(
+            mean=mean,
+            log_std=log_std,
+            action_low=self.action_low,
+            action_high=self.action_high,
         )
-        return tfd.TransformedDistribution(base, bijector)
 
     def sample_and_log_prob(
         self, mean: jax.Array, log_std: jax.Array, key: jax.Array
     ) -> tuple[jax.Array, jax.Array]:
-        d = self.dist(mean, log_std)
-        action = d.sample(seed=key)
-        log_prob = d.log_prob(action)
-        return action, log_prob
+        if self.squash_log_std:
+            log_std = self.transform_log_std(log_std)
+        noise = jax.random.normal(key, mean.shape, dtype=mean.dtype)
+        pre_tanh = mean + jnp.exp(log_std) * noise
+        pre_log_prob = _diagonal_gaussian_log_prob(pre_tanh, mean, log_std)
+        return squash_tanh_action(
+            pre_tanh,
+            pre_log_prob,
+            self.action_low,
+            self.action_high,
+        )
 
     def transform_log_std(self, log_std: jax.Array):
         if self.squash_log_std:
@@ -272,21 +412,18 @@ class MultivariateBetaPolicy:
     action_high: jax.Array
     epsilon: float = 1e-4
 
-    def dist(self, alpha: jax.Array, beta: jax.Array) -> tfd.Distribution:
+    def dist(self, alpha: jax.Array, beta: jax.Array) -> AffineBetaDistribution:
         # Ensure positivity of concentration parameters.
         alpha = jax.nn.softplus(alpha) + self.epsilon
         beta = jax.nn.softplus(beta) + self.epsilon
 
-        base = tfd.Independent(
-            tfd.Beta(concentration1=alpha, concentration0=beta),
-            reinterpreted_batch_ndims=1,
+        return AffineBetaDistribution(
+            alpha=alpha,
+            beta=beta,
+            action_low=self.action_low,
+            action_high=self.action_high,
+            eps=self.epsilon,
         )
-        # Map (0, 1) -> [low, high] with an affine transform.
-        scale, bias = action_scale_bias(self.action_low, self.action_high)
-        # Beta support is (0, 1). Affine is safe (no boundary at 0/1 sampled in practice).
-        bijector = tfb.Chain(
-            [tfb.Shift(shift=bias - scale), tfb.Scale(scale=2.0 * scale)])
-        return tfd.TransformedDistribution(base, bijector)
 
     def sample_and_log_prob(
         self, alpha: jax.Array, beta: jax.Array, key: jax.Array

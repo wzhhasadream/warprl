@@ -91,10 +91,10 @@ class FlowConditionerEncoder(nnx.Module):
             kernel_init=orthogonal(1),
             rngs=rngs.fork(),
         )
-        self.blocks = [
+        self.blocks = nnx.List([
             FlowResidualBlock(hidden_dim, rngs=rngs.fork())
             for _ in range(num_blocks)
-        ]
+        ])
         self.final_norm = nnx.RMSNorm(hidden_dim, rngs=rngs.fork())
 
     def __call__(

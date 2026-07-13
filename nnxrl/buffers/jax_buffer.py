@@ -183,7 +183,7 @@ class JaxBuffer:
             num_buckets=int(num_buckets),
             device=device
         )
-    @partial(jax.jit , donate_argnums=0)
+    @partial(jax.jit, donate_argnums=(0,))
     def add(self, transition: Transition) -> "JaxBuffer":
         observations = _reshape_obs(transition.observations, self.num_envs, self.obs_shape, self.obs_dtype, self.device)
         actions = _reshape_action(transition.actions, self.num_envs, self.action_shape, self.action_dtype, self.device)

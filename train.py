@@ -17,9 +17,9 @@ import tqdm
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab'] = "auto"
 
-    env_id: str = "h1-run-v0"
+    env_id: str = "FishSwim"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'humanoid_bench'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'playground'
 
     seed: int = 1
 
@@ -58,6 +58,7 @@ class Args:
     use_bias: Literal[True, False] = False
     record_video: Literal[True, False] = False
     save_agent: Literal[True, False] = False
+    save_onnx: Literal[True, False] = False
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "nnxrl"
     action_repeat: int = 1
@@ -112,6 +113,8 @@ def main():
             wandb.video(videos, global_step)
         if args.save_agent:
             wandb.save_agent(agent, global_step)
+        if args.save_onnx:
+            wandb.save_onnx(agent, global_step)
 
     eval_and_log(agent, 0)
     obs, info = train_envs.reset(seed=args.seed)

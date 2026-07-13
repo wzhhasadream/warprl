@@ -24,22 +24,22 @@ class MLP(nnx.Module):
     ):
         dims = [in_dim] + list(hidden_dims)
 
-        self.layers = [
+        self.layers = nnx.List([
             nnx.Linear(
                 dims[i], dims[i + 1],
                 rngs=rngs,
                 kernel_init=orthogonal() 
             )
             for i in range(len(hidden_dims))
-        ]
+        ])
 
         self.layer_norm = layer_norm
         self.activation_fn = activation_fn
         if layer_norm:
-            self.norms = [
+            self.norms = nnx.List([
                 nnx.LayerNorm(num_features=dims[i + 1], rngs=rngs)
                 for i in range(len(hidden_dims))
-            ]
+            ])
 
     def __call__(self, x):
         for i, layer in enumerate(self.layers):
@@ -145,10 +145,10 @@ class SimBaEncoder(nnx.Module):
         )
 
         # Stack residual blocks
-        self.residual_blocks = [
+        self.residual_blocks = nnx.List([
             ResidualBlock(hidden_dim, rngs=rngs)
             for _ in range(num_blocks)
-        ]
+        ])
 
         # Final layer norm
         self.final_bn = nnx.BatchNorm(
@@ -251,8 +251,10 @@ class Encoder(nnx.Module):
                 use_bias: bool = True,
                 compute_type: Dtype = jnp.float32):
         self.embed = FlashSACEmbedder(input_dim, hidden_dim, rngs, use_bias, compute_type)
-        self.blocks = [FlashSACBlock(hidden_dim, rngs, 4, use_bias, compute_type)
-                       for _ in range(num_blocks)]
+        self.blocks = nnx.List([
+            FlashSACBlock(hidden_dim, rngs, 4, use_bias, compute_type)
+            for _ in range(num_blocks)
+        ])
         self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs, dtype=compute_type)
 
     def __call__(self, x: jax.Array, training: bool):

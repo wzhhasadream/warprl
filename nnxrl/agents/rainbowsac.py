@@ -13,7 +13,8 @@ from nnxrl.utils import (
     RewardNormalizer,
     load_states,
     save_states,
-    default_learner_device
+    default_learner_device,
+    select_actor_observations
 )
 from gymnasium.vector import VectorEnv
 from .get_action import (
@@ -22,7 +23,6 @@ from .get_action import (
     update_reward_normalizer,
 )
 from .update import RainbowSACConfig, make_update_rainbowsac
-
 
 
 
@@ -133,14 +133,17 @@ class RainbowSACAgent:
         self.actor_opt = nnx.Optimizer(
             self.actor,
             adam(cosine_decay_schedule(policy_lr, num_critic_updates, end_lr / policy_lr)),
+            wrt=nnx.Param
         )
         self.critic_opt = nnx.Optimizer(
             self.critic,
             adam(cosine_decay_schedule(q_lr, num_critic_updates, end_lr / q_lr)),
+            wrt=nnx.Param
         )
         self.alpha_opt = nnx.Optimizer(
             self.alpha,
             adam(cosine_decay_schedule(policy_lr, num_critic_updates, end_lr / policy_lr)),
+            wrt=nnx.Param
         )
         self.reward_normalizer = (
             RewardNormalizer.create(getattr(self.cfg, "num_envs"), getattr(self.cfg, "gamma"))
@@ -204,7 +207,11 @@ class RainbowSACAgent:
 
 
     def save(self, path: str) -> None:
-        save_states(path, {
+        from pathlib import Path
+
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        save_states(str(output_path), {
             "actor": self.actor,
             "critic": self.critic,
             "target_critic": self.target_critic,
@@ -214,7 +221,30 @@ class RainbowSACAgent:
             "alpha_opt": self.alpha_opt,
             "critic_grad_updates": self.critic_grad_updates,
             "reward_normalizer": self.reward_normalizer,
+            "replaybuffer": self.replay_buffer,
         })
+
+    def save_onnx(self, path: str):
+        from pathlib import Path
+
+        from jax2onnx import to_onnx
+
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        def policy_fn(obs: jax.Array) -> jax.Array:
+            obs = obs.reshape(-1, *self.observation_space.shape)
+            actor_obs = select_actor_observations(obs, self.asymmetric_obs, self.actor_observation_dim)
+            return self.actor.get_mean_action(actor_obs)
+
+        return to_onnx(
+            policy_fn,
+            [("B", *self.observation_space.shape)],
+            input_names=["obs"],
+            output_names=["action"],
+            return_mode="file",
+            output_path=output_path,
+        )
 
     def load(self, path: str) -> None:
         model_dict = load_states(path, {
@@ -227,6 +257,7 @@ class RainbowSACAgent:
             "alpha_opt": self.alpha_opt,
             "critic_grad_updates": self.critic_grad_updates,
             "reward_normalizer": self.reward_normalizer,
+            "replaybuffer": self.replay_buffer,
         })
         for key, value in model_dict.items():
             setattr(self, key, value)

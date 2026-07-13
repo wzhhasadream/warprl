@@ -205,6 +205,10 @@ class Run:
         os.makedirs(model_path, exist_ok=True)
         agent.save(os.path.join(model_path, f"{step}_ckpt"))
 
+    def save_onnx(self, agent, step: int):
+        onnx_path = os.path.join(self.run_dir, f"onnx")
+        os.makedirs(onnx_path, exist_ok=True)
+        agent.save_onnx(os.path.join(onnx_path, f"{step}_onnx.onnx"))
 
 
 def init(
@@ -249,6 +253,11 @@ def save_agent(agent, step: int):
         raise RuntimeError("No active run. Call init() first.")
     _current_run.save_agent(agent, step)
 
+
+def save_onnx(agent, step: int):
+    if _current_run is None:
+        raise RuntimeError("No active run. Call init() first.")
+    _current_run.save_onnx(agent, step)
 
 def finish():
     if _current_run is not None:
