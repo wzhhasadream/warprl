@@ -36,20 +36,20 @@ def normalize_scale(scale: jax.Array, eps: float = 1e-8) -> jax.Array:
 
 
 def project_param(module: nnx.Module) -> None:
-    for _, m in nnx.iter_modules(module):
+    for _, m in module.iter_modules():
         if isinstance(m, nnx.Linear):
-            m.kernel[...] = normalize_linear_kernel(m.kernel[...])
+            m.kernel.value = normalize_linear_kernel(m.kernel.value)
 
 
         if isinstance(m, (nnx.LayerNorm, nnx.BatchNorm)):
             scale = getattr(m, "scale", None)
             bias = getattr(m, "bias", None)
             if scale is not None and bias is not None:
-                scale[...], bias[...] = normalize_scale_bias(
-                    scale[...], bias[...]
+                scale.value, bias.value = normalize_scale_bias(
+                    scale.value, bias.value
                 )
 
         elif hasattr(nnx, "RMSNorm") and isinstance(m, nnx.RMSNorm):
             scale = getattr(m, "scale", None)
             if scale is not None:
-                scale[...] = normalize_scale(scale[...])
+                scale.value = normalize_scale(scale.value)

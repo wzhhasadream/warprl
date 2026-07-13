@@ -3,33 +3,22 @@ import jax
 from flax import nnx
 import orbax.checkpoint as ocp
 
-# Check if the object is a nnx graph node
-def _is_nnx_graph_node(x: object) -> bool:
-    return nnx.graph.is_graph_node(x)
-
 
 def _to_state_tree(tree):
     return jax.tree.map(
-        lambda x: nnx.to_pure_dict(nnx.state(x)) if _is_nnx_graph_node(x) else x,
+        lambda x: nnx.state(x) if isinstance(x, nnx.Object) else x,
         tree,
-        is_leaf=_is_nnx_graph_node,
+        is_leaf=lambda x: isinstance(x, nnx.Object),
     )
 
 
 def _merge_from_template(template_tree, state_tree):
-    def restore_node(obj, restored_state):
-        if not _is_nnx_graph_node(obj):
-            return restored_state
-
-        state = nnx.state(obj)
-        nnx.replace_by_pure_dict(state, restored_state)
-        return nnx.merge(nnx.graphdef(obj), state)
-
     return jax.tree.map(
-        restore_node,
+        lambda obj, st: nnx.merge(nnx.graphdef(obj), st)
+        if isinstance(obj, nnx.Object) else st,
         template_tree,
         state_tree,
-        is_leaf=_is_nnx_graph_node,
+        is_leaf=lambda x: isinstance(x, nnx.Object),
     )
 
 

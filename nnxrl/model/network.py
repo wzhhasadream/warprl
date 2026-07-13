@@ -33,8 +33,6 @@ def freeze_module_params(module):
     return nnx.merge(graphdef, frozen_params, rest)
 
 
-
-
 class QNetwork(nnx.Module):
     def __init__(self, obs_dim: int | tuple[int, ...],
                  action_dim: int,
@@ -119,9 +117,6 @@ class EnsembleCritic(nnx.Module):
     def __call__(self, observations: Any, actions: jax.Array) -> jax.Array:
         q = self.critic(observations, actions)
         return q    # (num_q, B, n_head)
-
-
-
 
 
 class TanhDetActor(nnx.Module):
@@ -274,7 +269,7 @@ class GaussianActor(nnx.Module):
         if not self.shared_std:
             log_std = self.fc_logstd(x)
         else:
-            log_std = jnp.broadcast_to(self.log_std[...], mean.shape)
+            log_std = jnp.broadcast_to(self.log_std.value, mean.shape)
         return self.policy.dist(mean, log_std)
 
     def get_action(self, x: Any, *, key: jax.Array | None = None, actions: jax.Array | None = None) -> tuple[jax.Array, jax.Array, jax.Array]:
@@ -373,7 +368,7 @@ class Alpha(nnx.Module):
         self.log_alpha = nnx.Param(jnp.asarray(math.log(init_value)))
 
     def __call__(self) -> jax.Array:
-        return jnp.exp(self.log_alpha[...])
+        return jnp.exp(self.log_alpha.value)
 
 
 class SquashedAlpha(nnx.Module):
@@ -383,7 +378,7 @@ class SquashedAlpha(nnx.Module):
         self.log_std_max = log_std_max
 
     def __call__(self) -> jax.Array:
-        log_alpha = self.log_alpha[...]
+        log_alpha = self.log_alpha.value
         log_alpha = squash_log_std_tanh(
             log_alpha, log_std_min=self.log_std_min, log_std_max=self.log_std_max)
         return jnp.exp(log_alpha)

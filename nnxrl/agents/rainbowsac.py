@@ -23,7 +23,7 @@ from .get_action import (
     update_reward_normalizer,
 )
 from .update import RainbowSACConfig, make_update_rainbowsac
-
+import os
 
 
 
@@ -207,10 +207,7 @@ class RainbowSACAgent:
 
 
     def save(self, path: str) -> None:
-        from pathlib import Path
-
-        output_path = Path(path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        os.makedirs(path, exist_ok=True)
         save_states(str(output_path), {
             "actor": self.actor,
             "critic": self.critic,
@@ -225,26 +222,25 @@ class RainbowSACAgent:
         })
 
     def save_onnx(self, path: str):
-        from pathlib import Path
+        os.makedirs(path, exist_ok=True)
 
+        import onnx
         from jax2onnx import to_onnx
-
-        output_path = Path(path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        input_shape = ("B", *self.observation_space.shape)
 
         def policy_fn(obs: jax.Array) -> jax.Array:
-            obs = obs.reshape(-1, *self.observation_space.shape)
-            actor_obs = select_actor_observations(obs, self.asymmetric_obs, self.actor_observation_dim)
+            obs = obs.reshape((-1,) + self.observation_space.shape)
+            actor_obs = select_actor_observations(
+                obs,
+                self.asymmetric_obs,
+                self.actor_observation_dim,
+            )
             return self.actor.get_mean_action(actor_obs)
 
-        return to_onnx(
-            policy_fn,
-            [("B", *self.observation_space.shape)],
-            input_names=["obs"],
-            output_names=["action"],
-            return_mode="file",
-            output_path=output_path,
-        )
+
+        model = to_onnx(policy_fn, [input_shape])
+        onnx.save(model, path)
+
 
     def load(self, path: str) -> None:
         model_dict = load_states(path, {

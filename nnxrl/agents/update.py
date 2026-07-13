@@ -134,7 +134,7 @@ def update_critic(
 
     (_loss, info), grads = nnx.value_and_grad(
         loss, has_aux=True)(critic, target_critic)
-    critic_opt.update(critic,grads)
+    critic_opt.update(grads)
     if config.normalize_parameters:
         project_param(critic)
     return info
@@ -155,7 +155,7 @@ def update_alpha(
 
     (_loss, info), grads = nnx.value_and_grad(
         alpha_loss_fn, has_aux=True)(alpha)
-    alpha_opt.update(alpha, grads)
+    alpha_opt.update(grads)
     return info
 
 
@@ -200,7 +200,7 @@ def update_actor(
     (_loss, info), grads = nnx.value_and_grad(
         actor_loss_fn, argnums=0, has_aux=True
     )(actor, critic)
-    actor_opt.update(actor, grads)
+    actor_opt.update(grads)
     if config.normalize_parameters:
         project_param(actor)
     return info

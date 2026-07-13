@@ -17,9 +17,9 @@ import tqdm
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab'] = "auto"
 
-    env_id: str = "FishSwim"
+    env_id: str = "humanoid-run"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'playground'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'dmc'
 
     seed: int = 1
 
@@ -56,9 +56,9 @@ class Args:
     normalize_parameters: Literal[True, False] = True
     normalize_rewards: Literal[True, False] = True
     use_bias: Literal[True, False] = False
-    record_video: Literal[True, False] = False
+    record_video: Literal[True, False] = True
     save_agent: Literal[True, False] = False
-    save_onnx: Literal[True, False] = False
+    save_onnx: Literal[True, False] = True
     loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
     log_path: str = "nnxrl"
     action_repeat: int = 1
