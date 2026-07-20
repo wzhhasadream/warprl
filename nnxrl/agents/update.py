@@ -48,6 +48,7 @@ class WarpSACConfig(Protocol):
     num_head: int
     use_bias: bool
     dist_type: Literal["quantile", "ce", "scalar"]
+    q_agg: Literal["mean", "min"]
 
     normalize_parameters: bool
     normalize_rewards: bool
@@ -186,10 +187,9 @@ def update_actor(
             actor_obs_all, key=action_key, training=True)
         actions = actions_all[: config.batch_size, ]
         log_pi = log_pi_all[: config.batch_size, ]
-        min_q = jnp.min(
-            critic.q_values(batch.observations, actions, training=False), axis=0
-        )
-        actor_loss = -jnp.mean(min_q - alpha_value * log_pi)
+        q = critic.q_values(batch.observations, actions, training=False)
+        q = getattr(jnp, config.q_agg)(q, axis=0)
+        actor_loss = -jnp.mean(q - alpha_value * log_pi)
         return actor_loss, {"training/actor_loss": actor_loss, "training/entropy": -log_pi.mean()}
 
     (_loss, info), grads = nnx.value_and_grad(
