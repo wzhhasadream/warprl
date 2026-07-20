@@ -90,3 +90,6 @@ class Alpha(nnx.Module):
         self.log_alpha = nnx.Param(
             jnp.log(jnp.asarray(initial_value, dtype=jnp.float32))
         )
+
+    def __call__(self) -> jax.Array:
+        return jnp.exp(self.log_alpha)

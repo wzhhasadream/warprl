@@ -68,9 +68,9 @@ class RewardNormalizer(nnx.Module):
         self.g_max = g_max
         self.epsilon = epsilon
         self.use_max_bound = use_max_bound
-        self.g = nnx.Variable(jnp.zeros(shape, dtype=jnp.float32))
+        self.g = nnx.BatchStat(jnp.zeros(shape, dtype=jnp.float32))
         self.g_rms = RMS((), epsilon=epsilon)
-        self.g_abs_max = nnx.Variable(jnp.array(0.0, dtype=jnp.float32))
+        self.g_abs_max = nnx.BatchStat(jnp.array(0.0, dtype=jnp.float32))
 
     def update(self, rewards: jax.Array, episode_dones: jax.Array) -> None:
         """Update discounted-return statistics from one environment step."""

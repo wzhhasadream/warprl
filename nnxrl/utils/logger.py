@@ -12,6 +12,27 @@ _current_run = None
 run_dir = None
 
 
+def _tile_videos(videos: np.ndarray) -> np.ndarray:
+    """Arrange a batch of videos into a single row-major grid video."""
+    batch_size, num_frames, height, width, channels = videos.shape
+    num_cols = int(np.ceil(np.sqrt(batch_size)))
+    num_rows = int(np.ceil(batch_size / num_cols))
+    num_slots = num_rows * num_cols
+
+    if num_slots != batch_size:
+        padding = np.zeros(
+            (num_slots - batch_size, num_frames, height, width, channels),
+            dtype=videos.dtype,
+        )
+        videos = np.concatenate((videos, padding), axis=0)
+
+    return videos.reshape(
+        num_rows, num_cols, num_frames, height, width, channels
+    ).transpose(2, 0, 3, 1, 4, 5).reshape(
+        num_frames, num_rows * height, num_cols * width, channels
+    )
+
+
 def _to_python_scalar(value: Any, round_floats: bool = True) -> Any:
     if isinstance(value, (bool, int, str)):
         return value
@@ -191,9 +212,8 @@ class Run:
                 raise ValueError(f"Unsupported video format: {fmt}")
 
         if videos.ndim == 5:
-            # [B, T, H, W, C] -> save each video.
-            for i, frames in enumerate(videos):
-                save_frames(frames, f"video_{i}")
+            # [B, T, H, W, C] -> [T, rows * H, cols * W, C].
+            save_frames(_tile_videos(videos), "video")
         elif videos.ndim == 4:
             # [T, H, W, C] -> save one video.
             save_frames(videos, "video")
@@ -203,12 +223,12 @@ class Run:
     def save_agent(self, agent, step: int):
         model_path = os.path.join(self.run_dir, "model")
         os.makedirs(model_path, exist_ok=True)
-        agent.save(os.path.join(model_path, f"{step}"))
+        agent.save(os.path.join(model_path, f"{step}_step"))
 
     def save_onnx(self, agent, step: int):
         onnx_path = os.path.join(self.run_dir, f"onnx")
         os.makedirs(onnx_path, exist_ok=True)
-        agent.save_onnx(os.path.join(onnx_path, f"{step}"))
+        agent.save_onnx(os.path.join(onnx_path, f"{step}_step"))
 
 
 def init(

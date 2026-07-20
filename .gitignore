@@ -45,3 +45,6 @@ exp.sh
 
 # Local reference repositories
 third_party/
+
+
+*.md

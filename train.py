@@ -15,11 +15,11 @@ import dataclasses
 import tqdm
 @dataclasses.dataclass
 class Args:
-    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab'] = "auto"
+    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'holosoma'] = "auto"
 
     env_id: str = "humanoid-run"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'dmc'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab', 'holosoma'] = 'dmc'
 
     seed: int = 1
 
@@ -62,6 +62,8 @@ class Args:
     dist_type: Literal["quantile", "ce", "scalar"] = "ce"
     log_path: str = "warpsac"
     action_repeat: int = 1
+    asymmetric_obs: bool = dataclasses.field(init=False, default=False)
+    target_entropy: float = dataclasses.field(init=False, default=0.0)
 
     def __post_init__(self):
         resolve_profile(self)
