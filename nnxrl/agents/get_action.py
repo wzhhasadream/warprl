@@ -1,9 +1,9 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from functools import partial
-from nnxrl.model import FlashSACActor
-from nnxrl.utils import RewardNormalizer, sample_truncated_zeta, select_actor_observations
+from .flashsacnetwork import FlashSACActor
+from nnxrl.model import RewardNormalizer
+from nnxrl.utils import sample_truncated_zeta, select_actor_observations
 
 
 @nnx.jit(static_argnames=("asymmetric_obs",))
@@ -38,14 +38,14 @@ def get_exploration_action(
     return true_action_key, actions, new_repeat_n, new_repeat_count
 
 
-@partial(jax.jit, donate_argnums=0)
+@nnx.jit
 def update_reward_normalizer(
     reward_normalizer: RewardNormalizer | None,
     rewards: jax.Array,
-    termiations: jax.Array,
+    terminations: jax.Array,
     truncations: jax.Array
-) -> RewardNormalizer | None:
+) -> None:
     if reward_normalizer is None:
-        return None
-    episode_dones = jnp.logical_or(termiations, truncations)
-    return reward_normalizer.update(rewards, episode_dones)
+        return
+    episode_dones = jnp.logical_or(terminations, truncations)
+    reward_normalizer.update(rewards, episode_dones)

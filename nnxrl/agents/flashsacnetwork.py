@@ -1,13 +1,19 @@
 import jax
 import jax.numpy as jnp
+from math import prod
+from typing import Literal
 from flax import nnx
 from flax.typing import Dtype
-from .layer import orthogonal, Encoder
-from .policy import (
-    SquashedTanhGaussianPolicy,
-    action_scale_bias,
-    flattened_dim,
-)
+
+from nnxrl.model.layer import orthogonal, Encoder
+from nnxrl.model.policy import SquashedTanhGaussianPolicy
+from nnxrl.model.dist_head import CategoricalPolicy, QuantilePolicy
+
+
+def _flattened_dim(observation_dim: int | tuple[int, ...]) -> int:
+    if isinstance(observation_dim, int):
+        return observation_dim
+    return prod(observation_dim)
 
 
 class FlashSACActor(nnx.Module):
@@ -26,15 +32,8 @@ class FlashSACActor(nnx.Module):
         use_bias: bool = True,
         compute_type: Dtype = jnp.float32
     ):
-        self.obs_dim = flattened_dim(obs_dim)
+        self.obs_dim = _flattened_dim(obs_dim)
         self.action_dim = action_dim
-        action_low = jnp.asarray(action_low)
-        action_high = jnp.asarray(action_high)
-        action_scale, action_bias = action_scale_bias(action_low, action_high)
-        self.action_low = nnx.Variable(action_low)
-        self.action_high = nnx.Variable(action_high)
-        self.action_scale = nnx.Variable(action_scale)
-        self.action_bias = nnx.Variable(action_bias)
         self.compute_type = compute_type
 
         self.encoder = Encoder(self.obs_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, compute_type=compute_type)
@@ -53,8 +52,8 @@ class FlashSACActor(nnx.Module):
             dtype=compute_type
         )
         self.policy = SquashedTanhGaussianPolicy(
-            action_low=self.action_low,
-            action_high=self.action_high,
+            action_low=action_low,
+            action_high=action_high,
             log_std_min=log_std_min,
             log_std_max=log_std_max,
             squash_log_std=squash_log_std,
@@ -81,13 +80,13 @@ class FlashSACActor(nnx.Module):
     ) -> tuple[jax.Array, jax.Array]:
         mean, log_std = self(observations, training=training)
         action, log_prob = self.policy.sample_and_log_prob(mean, log_std, key)
-        return action, log_prob[:, None]
+        return action, log_prob
 
     def get_mean_action(self, observations: jax.Array) -> jax.Array:
         observations = observations.astype(self.compute_type)
         x = self.encoder(observations, training=False)
         mean = self.fc_mean(x)
-        return (jnp.tanh(mean) * self.action_scale + self.action_bias).astype(jnp.float32)
+        return self.policy.mean_action(mean).astype(jnp.float32)
 
 
     def get_mean_std(self, observations: jax.Array):
@@ -110,10 +109,14 @@ class FlashSACQNetwork(nnx.Module):
         num_blocks: int = 2,
         num_head: int = 1,
         use_bias: bool = True,
-        compute_type: Dtype = jnp.float32
+        compute_type: Dtype = jnp.float32,
+        dist_type: Literal["scalar", "ce", "quantile"] = "ce",
     ):
-        self.obs_dim = flattened_dim(obs_dim)
+        if num_head < 1:
+            raise ValueError(f"num_head must be positive, got {num_head}")
+        self.obs_dim = _flattened_dim(obs_dim)
         self.action_dim = action_dim
+        self.dist_type = "scalar" if num_head == 1 else dist_type
         self.encoder = Encoder(
             self.obs_dim + self.action_dim, num_blocks, hidden_dim, rngs=rngs, use_bias=use_bias, compute_type=compute_type)
         self.out = nnx.Linear(
@@ -124,6 +127,16 @@ class FlashSACQNetwork(nnx.Module):
             dtype=compute_type
         )
         self.compute_type = compute_type
+        if self.dist_type == "scalar":
+            if num_head != 1:
+                raise ValueError("scalar critics require num_head == 1")
+            self.policy = None
+        elif self.dist_type == "ce":
+            self.policy = CategoricalPolicy(num_head, -5, 5)
+        elif self.dist_type == "quantile":
+            self.policy = QuantilePolicy(num_head, 1)
+        else:
+            raise ValueError(f"Unsupported dist_type: {dist_type}")
 
     def __call__(
         self,
@@ -136,12 +149,21 @@ class FlashSACQNetwork(nnx.Module):
         x = self.encoder(x, training=training)
         return self.out(x).astype(jnp.float32)
 
+    def q_values(
+        self,
+        observations: jax.Array,
+        actions: jax.Array,
+        training: bool = True,
+    ) -> jax.Array:
+        values = self(observations, actions, training=training)
+        return values if self.policy is None else self.policy.q_values(values)
+
 
 
 class FlashSACDoubleCritic(nnx.Module):
-    """Ensembled scalar critic for FlashSAC-style training."""
+    """Ensembled scalar or distributional critic for FlashSAC-style training."""
 
-    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None, None), out_axes=0)
+    @nnx.vmap(in_axes=(0, None, None, 0, None, None, None, None, None, None), out_axes=0)
     def __init__(
         self,
         obs_dim: int | tuple[int, ...],
@@ -151,7 +173,8 @@ class FlashSACDoubleCritic(nnx.Module):
         num_blocks: int = 2,
         num_head: int = 1,
         use_bias: bool = True,
-        compute_type: Dtype = jnp.float32
+        compute_type: Dtype = jnp.float32,
+        dist_type: Literal["scalar", "ce", "quantile"] = "ce",
     ):
         self.critic = FlashSACQNetwork(
             obs_dim=obs_dim,
@@ -161,7 +184,8 @@ class FlashSACDoubleCritic(nnx.Module):
             num_blocks=num_blocks,
             num_head=num_head,
             use_bias=use_bias,
-            compute_type=compute_type
+            compute_type=compute_type,
+            dist_type=dist_type,
         )
 
     @nnx.vmap(in_axes=(0, None, None, None), out_axes=0)
@@ -172,3 +196,12 @@ class FlashSACDoubleCritic(nnx.Module):
         training: bool = True,
     ) -> jax.Array:
         return self.critic(observations, actions, training=training)
+
+    @nnx.vmap(in_axes=(0, None, None, None), out_axes=0)
+    def q_values(
+        self,
+        observations: jax.Array,
+        actions: jax.Array,
+        training: bool = True,
+    ) -> jax.Array:
+        return self.critic.q_values(observations, actions, training=training)

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from gymnasium import spaces
 import numpy as np
-from .__init__ import Batch, Transition
+from .types import Batch, Transition
 
 def get_action_dim(action_space: spaces.Space) -> int:
     """

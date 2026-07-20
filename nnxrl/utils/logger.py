@@ -201,14 +201,14 @@ class Run:
             raise ValueError(f"Expected video array with 4 or 5 dims, got shape {videos.shape}")
 
     def save_agent(self, agent, step: int):
-        model_path = os.path.join(self.run_dir, f"model")
+        model_path = os.path.join(self.run_dir, "model")
         os.makedirs(model_path, exist_ok=True)
-        agent.save(os.path.join(model_path, f"{step}_ckpt"))
+        agent.save(os.path.join(model_path, f"{step}"))
 
     def save_onnx(self, agent, step: int):
         onnx_path = os.path.join(self.run_dir, f"onnx")
         os.makedirs(onnx_path, exist_ok=True)
-        agent.save_onnx(os.path.join(onnx_path, f"{step}_onnx.onnx"))
+        agent.save_onnx(os.path.join(onnx_path, f"{step}"))
 
 
 def init(

@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from gymnasium import spaces
 
-from .__init__ import Batch, Transition
+from .types import Batch, Transition
 from .base_buffer import BaseBuffer
 
 

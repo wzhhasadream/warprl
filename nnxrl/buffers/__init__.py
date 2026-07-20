@@ -1,26 +1,6 @@
-from typing import Any, Literal, NamedTuple
-
-import numpy as np
-import jax
+from typing import Any, Literal
 import gymnasium as gym
-
-class Batch(NamedTuple):
-    observations: jax.Array | np.ndarray 
-    actions: jax.Array | np.ndarray
-    rewards: jax.Array | np.ndarray
-    dones: jax.Array | np.ndarray
-    next_observations: jax.Array | np.ndarray
-    discounts: jax.Array | np.ndarray 
-
-
-class Transition(NamedTuple):
-    observations: jax.Array | np.ndarray
-    actions: jax.Array | np.ndarray
-    rewards: jax.Array | np.ndarray
-    truncations: jax.Array | np.ndarray
-    terminations: jax.Array | np.ndarray
-    next_observations: jax.Array | np.ndarray
-
+from .types import Batch, Transition
 
 def create_buffer(
     action_space: gym.spaces.Space,

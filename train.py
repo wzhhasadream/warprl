@@ -1,11 +1,11 @@
 import nnxrl.utils.logger as wandb
 from typing import Literal
-from nnxrl.agents import RainbowSACAgent
+from config import resolve_profile
+from nnxrl.agents import WarpSACAgent
 from nnxrl.env import create_envs
 from nnxrl.utils import (
     evaluate_policy, 
     replace_done_next_obs, 
-    resolve_profile, 
     record_video
 )
 from nnxrl.buffers import Transition
@@ -58,25 +58,28 @@ class Args:
     use_bias: Literal[True, False] = False
     record_video: Literal[True, False] = False
     save_agent: Literal[True, False] = False
-    save_onnx: Literal[True, False] = True
-    loss_type: Literal["quantile_loss", "ce_loss"] = "ce_loss"
-    log_path: str = "nnxrl"
+    save_onnx: Literal[True, False] = False
+    dist_type: Literal["quantile", "ce", "scalar"] = "ce"
+    log_path: str = "warpsac"
     action_repeat: int = 1
 
     def __post_init__(self):
         resolve_profile(self)
         self.num_interaction_steps = self.total_timesteps // self.num_envs
         if self.eval_frequency is None:
-            self.eval_frequency = self.num_interaction_steps // 20
+            if self.env_type == "isaaclab":
+                self.eval_frequency = max(1, self.num_interaction_steps // 10)
+            else:
+                self.eval_frequency = max(1, self.num_interaction_steps // 20)
 
         if self.log_frequency is None:
-            self.log_frequency = self.num_interaction_steps // 50
+            self.log_frequency = max(1, self.num_interaction_steps // 50)
 
 
 
 
 def main():
-    print("🚀 RainBowsac training")
+    print("🚀 WarpSAC training")
     print("=" * 60)
 
     args = tyro.cli(Args)
@@ -95,8 +98,7 @@ def main():
         render_mode=render_mode,
     )
 
-    agent = RainbowSACAgent(train_envs, args)
-    extra_infos = agent.observation_debug_info
+    agent = WarpSACAgent(train_envs, args)
     wandb.init(
         project=args.log_path,
         name=f"{args.env_id}",

@@ -3,12 +3,13 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from flax import struct
 from gymnasium import spaces
 
-from .__init__ import Batch, Transition
+from .types import Batch, Transition
 from .base_buffer import get_action_dim, get_obs_shape
+from pathlib import Path
+import orbax.checkpoint as ocp
 
 
 def _reshape_obs(
@@ -402,29 +403,22 @@ class JaxBuffer:
             window_size=jnp.array(0, dtype=self.window_size.dtype, device=self.device),
         )
 
-    def save(self, path: str) -> None:
-        size = int(self.size)
-        dataset = {
-            "observations": np.asarray(self.observations[:size]),
-            "actions": np.asarray(self.actions[:size]),
-            "rewards": np.asarray(self.rewards[:size]),
-            "terminations": np.asarray(self.terminations[:size]),
-            "truncations": np.asarray(self.truncations[:size]),
-            "next_observations": np.asarray(self.next_observations[:size]),
-            "discounts": np.asarray(self.discounts[:size]),
-            "timestamps": np.asarray(self.timestamps[:size]),
-            "ptr": np.asarray(self.ptr),
-            "time_size": np.asarray(self.time_size),
-            "size": np.asarray(self.size),
-            "current_time": np.asarray(self.current_time),
-        }
-        np.savez(path, **dataset)
+    def save(self, checkpoint_dir: str | Path) -> None:
+        checkpoint_dir = Path(checkpoint_dir)
+        checkpoint_dir.parent.mkdir(parents=True, exist_ok=True)
 
+        with ocp.StandardCheckpointer() as ckpt:
+            # Keep an empty replay buffer from being treated as an empty item.
+            ckpt.save(checkpoint_dir, {"buffer": self})
+            ckpt.wait_until_finished()
 
-    def load(self, path: str) -> "JaxBuffer":
-        data = np.load(path)
-        loaded = {key: jnp.asarray(data[key], device=self.device) for key in data.files}
-        return self.replace(**loaded)
+    def load(self, checkpoint_dir: str | Path) -> "JaxBuffer":
+        checkpoint_dir = Path(checkpoint_dir)
+        with ocp.StandardCheckpointer() as ckpt:
+            restored = ckpt.restore(checkpoint_dir, {"buffer": self})
+
+        return restored["buffer"]
+
 
     def __len__(self) -> int:
         return int(self.size)

@@ -89,9 +89,14 @@ def resolve_profile(args: Any) -> Any:
         if args.env_type in GPU_ENV_TYPES:
             profile = args.env_type
         elif args.env_type in CPU_ENV_TYPES:
-                profile = "cpu_sim"
+            profile = "cpu_sim"
         else:
             raise ValueError(f"Unknown env_type: {args.env_type}")
+
+    if profile not in PROFILE_DEFAULTS:
+        raise ValueError(
+            f"Unknown profile {profile!r}; expected one of {tuple(PROFILE_DEFAULTS)}"
+        )
 
     defaults = PROFILE_DEFAULTS[profile]
     for key, value in defaults.items():

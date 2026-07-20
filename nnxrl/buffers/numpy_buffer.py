@@ -2,7 +2,7 @@ from .base_buffer import BaseBuffer
 from gymnasium import spaces
 import numpy as np
 from collections import deque
-from .__init__ import Batch, Transition
+from .types import Batch, Transition
 
 
 class NumpyBuffer(BaseBuffer):

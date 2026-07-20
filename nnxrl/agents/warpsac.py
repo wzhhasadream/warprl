@@ -8,13 +8,10 @@ from optax import adam, cosine_decay_schedule
 from nnxrl.env import CPU_SIM
 from nnxrl.buffers import Transition
 from nnxrl.buffers.jax_buffer import JaxBuffer
-from nnxrl.model import Alpha, FlashSACActor, FlashSACDoubleCritic, project_param
+from nnxrl.model import Alpha, Network, RewardNormalizer
+from .flashsacnetwork import FlashSACActor, FlashSACDoubleCritic
 from nnxrl.utils import (
-    RewardNormalizer,
-    load_states,
-    save_states,
-    default_learner_device,
-    select_actor_observations
+    default_learner_device
 )
 from gymnasium.vector import VectorEnv
 from .get_action import (
@@ -22,30 +19,45 @@ from .get_action import (
     get_exploration_action,
     update_reward_normalizer,
 )
-from .update import RainbowSACConfig, make_update_rainbowsac
+from .update import WarpSACConfig, make_update_warpsac
 from pathlib import Path
 
 
 
-class RainbowSACAgent:
+class WarpSACAgent:
     def __init__(
         self,
         envs: VectorEnv,
-        cfg: RainbowSACConfig,
-    ) -> dict[str, int | bool]:
+        cfg: WarpSACConfig,
+    ) -> None:
         self.cfg = cfg
         self.observation_space = envs.single_observation_space
         self.action_space = envs.single_action_space
         self.num_envs = envs.num_envs
+        if self.observation_space.shape is None:
+            raise ValueError("WarpSAC requires a fixed-shape observation space")
+        if self.action_space.shape is None:
+            raise ValueError("WarpSAC requires a fixed-shape action space")
+        self.observation_shape = tuple(self.observation_space.shape)
         self.action_dim = int(np.prod(np.asarray(self.action_space.shape)))
-        self.critic_observation_dim = int(np.prod(np.asarray(self.observation_space.shape)))
-        self.actor_observation_dim = int(
-            np.prod(np.asarray(self.observation_space.shape)))
+        self.critic_observation_dim = int(
+            np.prod(np.asarray(self.observation_shape))
+        )
+        self.actor_observation_dim = self.critic_observation_dim
         self.asymmetric_obs = getattr(envs, 'asymmetric_obs', False)
         setattr(self.cfg, "asymmetric_obs", self.asymmetric_obs)
         setattr(self.cfg, "target_entropy", 0.5 * self.action_dim * np.log(2 * np.pi * np.e * 0.15**2))
         if self.asymmetric_obs:
-            self.actor_observation_dim = envs.actor_observation_size
+            actor_observation_size = getattr(
+                envs, "actor_observation_size", None
+            )
+            if actor_observation_size is None:
+                raise ValueError(
+                    "Asymmetric observations require actor_observation_size"
+                )
+            self.actor_observation_dim = int(
+                np.prod(np.asarray(actor_observation_size))
+            )
 
         self._init_train_state()
         self._init_cached_fn()
@@ -62,26 +74,28 @@ class RainbowSACAgent:
         }
 
     def _init_cached_fn(self):
-        update_fn = make_update_rainbowsac(self.cfg)
+        update_fn = make_update_warpsac(self.cfg)
         self._update_fn = nnx.cached_partial(
             update_fn,
             self.critic,
             self.actor,
-            self.actor_opt,
             self.alpha,
-            self.alpha_opt,
-            self.critic_opt,
             self.target_critic,
+            self.reward_normalizer.model
         )
         self._get_action_fn = nnx.cached_partial(
             get_eval_action,
-            self.actor,
+            self.actor.model,
             self.asymmetric_obs,
         )
         self._get_exploration_action_fn = nnx.cached_partial(
             get_exploration_action,
-            self.actor,
+            self.actor.model,
             self.asymmetric_obs,
+        )
+        self._update_reward_normalizer = nnx.cached_partial(
+            update_reward_normalizer,
+            self.reward_normalizer.model
         )
 
     def _init_train_state(
@@ -110,18 +124,18 @@ class RainbowSACAgent:
             device=getattr(self.cfg, "buffer_device", 'cpu')
         )
 
-        self.actor = FlashSACActor(
-                self.actor_observation_dim,
-                self.action_dim,
-                rngs.fork(),
-                hidden_dim=getattr(self.cfg, "actor_hidden_dim"),
-                num_blocks=getattr(self.cfg, "actor_num_blocks"),
-                action_high=1,
-                action_low=-1,
-                use_bias=getattr(self.cfg, "use_bias"),
-                compute_type=compute_type,
-            )
-        self.critic = FlashSACDoubleCritic(
+        actor_model = FlashSACActor(
+            self.actor_observation_dim,
+            self.action_dim,
+            rngs.fork(),
+            hidden_dim=getattr(self.cfg, "actor_hidden_dim"),
+            num_blocks=getattr(self.cfg, "actor_num_blocks"),
+            action_high=1,
+            action_low=-1,
+            use_bias=getattr(self.cfg, "use_bias"),
+            compute_type=compute_type,
+        )
+        critic_model = FlashSACDoubleCritic(
             self.critic_observation_dim,
             self.action_dim,
             rngs.fork(split=getattr(self.cfg, "num_q")),
@@ -130,31 +144,48 @@ class RainbowSACAgent:
             num_head=getattr(self.cfg, "num_head"),
             use_bias=getattr(self.cfg, "use_bias"),
             compute_type=compute_type,
+            dist_type=(
+                "scalar"
+                if getattr(self.cfg, "num_head") == 1
+                else getattr(self.cfg, "dist_type")
+            ),
         )
-        
+        self.actor = Network(
+            actor_model,
+            nnx.Optimizer(
+                actor_model,
+                adam(cosine_decay_schedule(policy_lr, num_critic_updates, end_lr / policy_lr)),
+                wrt=nnx.Param,
+            ),
+        )
+        self.critic = Network(
+            critic_model,
+            nnx.Optimizer(
+                critic_model,
+                adam(cosine_decay_schedule(q_lr, num_critic_updates, end_lr / q_lr)),
+                wrt=nnx.Param,
+            ),
+        )
+        alpha_model = Alpha()
+        self.alpha = Network(
+            alpha_model,
+            nnx.Optimizer(
+                alpha_model,
+                adam(cosine_decay_schedule(policy_lr, num_critic_updates, end_lr / policy_lr)),
+                wrt=nnx.Param,
+            ),
+        )
         if getattr(self.cfg, "normalize_parameters"):
-            project_param(self.critic)
-            project_param(self.actor)
-
-        self.target_critic = deepcopy(self.critic)
-        self.alpha = Alpha()
-        self.actor_opt = nnx.Optimizer(
-            self.actor,
-            adam(cosine_decay_schedule(policy_lr, num_critic_updates, end_lr / policy_lr)),
-            wrt=nnx.Param
-        )
-        self.critic_opt = nnx.Optimizer(
-            self.critic,
-            adam(cosine_decay_schedule(q_lr, num_critic_updates, end_lr / q_lr)),
-            wrt=nnx.Param
-        )
-        self.alpha_opt = nnx.Optimizer(
-            self.alpha,
-            adam(cosine_decay_schedule(policy_lr, num_critic_updates, end_lr / policy_lr)),
-            wrt=nnx.Param
+            self.actor.project_param()
+            self.critic.project_param()
+        self.target_critic = Network(
+            deepcopy(self.critic.model),
+            None,
+            source_model=self.critic.model,
+            tau=getattr(self.cfg, "tau"),
         )
         self.reward_normalizer = (
-            RewardNormalizer.create(getattr(self.cfg, "num_envs"), getattr(self.cfg, "gamma"))
+            Network(RewardNormalizer(getattr(self.cfg, "num_envs"), getattr(self.cfg, "gamma")), None)
             if getattr(self.cfg, "normalize_rewards")
             else None
         )
@@ -168,12 +199,12 @@ class RainbowSACAgent:
 
 
     def get_action(self, obs: jax.Array | np.ndarray):
-        obs = obs.reshape((-1,) + self.observation_space.shape)
+        obs = obs.reshape((-1,) + self.observation_shape)
         actions = self._get_action_fn(obs)
         return np.asarray(actions)
 
-    def get_exploration_action(self, obs):
-        obs = obs.reshape((-1,) + self.observation_space.shape)
+    def get_exploration_action(self, obs: jax.Array | np.ndarray):
+        obs = obs.reshape((-1,) + self.observation_shape)
         self._action_key, action_key = jax.random.split(self._action_key, 2)
         self.cached_key, actions, self.repeat_n, self.repeat_count = self._get_exploration_action_fn(
             obs,
@@ -185,12 +216,19 @@ class RainbowSACAgent:
         return np.asarray(actions)
 
     def process_transition(self, transition: Transition) -> None:
-        self.reward_normalizer = update_reward_normalizer(self.reward_normalizer, transition.rewards, transition.terminations, transition.truncations)
+        self._update_reward_normalizer(
+            transition.rewards,
+            transition.terminations,
+            transition.truncations,
+        )
         self.replay_buffer = self.replay_buffer.add(transition)
 
     @property
     def can_update(self) -> bool:
-        return self.replay_buffer.size >= getattr(self.cfg, "learning_starts") and self.replay_buffer.can_sample()
+        return bool(
+            self.replay_buffer.size >= getattr(self.cfg, "learning_starts")
+            and self.replay_buffer.can_sample()
+        )
 
     def update(self):
         self._sample_key, sample_key = jax.random.split(self._sample_key, 2)
@@ -206,7 +244,6 @@ class RainbowSACAgent:
         self._update_key, update_key = jax.random.split(self._update_key)
         self.critic_grad_updates, info = self._update_fn(
             self.critic_grad_updates,
-            self.reward_normalizer,
             update_key,
             batch,
         )
@@ -214,51 +251,38 @@ class RainbowSACAgent:
         return info
 
 
-    def save(self, path: str) -> None:
-        output_path = Path(path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        save_states(str(output_path), {
-            "actor": self.actor,
-            "critic": self.critic,
-            "target_critic": self.target_critic,
-            "actor_opt": self.actor_opt,
-            "critic_opt": self.critic_opt,
-            "alpha": self.alpha,
-            "alpha_opt": self.alpha_opt,
-            "critic_grad_updates": self.critic_grad_updates,
-            "reward_normalizer": self.reward_normalizer,
-            "replaybuffer": self.replay_buffer,
-        })
+    def save(self, checkpoint_dir: str | Path) -> None:
+        checkpoint_dir = Path(checkpoint_dir)
+        self.actor.save(checkpoint_dir / "actor.ckpt")
+        self.critic.save(checkpoint_dir / "critic.ckpt")
+        self.target_critic.save(checkpoint_dir / "target_critic.ckpt")
+        self.alpha.save(checkpoint_dir / "alpha.ckpt")
+        if self.reward_normalizer is not None:
+            self.reward_normalizer.save(checkpoint_dir / "reward_normalizer.ckpt")
 
-    def save_onnx(self, path: str):
-        output_path = Path(path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+    def save_onnx(self, onnx_dir: str | Path) -> None:
+        onnx_dir = Path(onnx_dir)
+        onnx_dir.mkdir(parents=True, exist_ok=True)
+        onnx_file = onnx_dir / "policy.onnx"
         import onnx
         from jax2onnx import to_onnx
         input_shape = ("B", self.actor_observation_dim)
 
         def policy_fn(obs: jax.Array) -> jax.Array:
             actor_obs = obs.reshape((-1, self.actor_observation_dim))
-            return self.actor.get_mean_action(actor_obs)
+            return self.actor.model.get_mean_action(actor_obs)
 
-
+        
         model = to_onnx(policy_fn, [input_shape])
-        onnx.save(model, output_path)
+        onnx.save(model, onnx_file)
 
 
-    def load(self, path: str) -> None:
-        model_dict = load_states(path, {
-            "actor": self.actor,
-            "critic": self.critic,
-            "target_critic": self.target_critic,
-            "actor_opt": self.actor_opt,
-            "critic_opt": self.critic_opt,
-            "alpha": self.alpha,
-            "alpha_opt": self.alpha_opt,
-            "critic_grad_updates": self.critic_grad_updates,
-            "reward_normalizer": self.reward_normalizer,
-            "replaybuffer": self.replay_buffer,
-        })
-        for key, value in model_dict.items():
-            setattr(self, key, value)
-        self._init_cached_fn()
+    def load(self, checkpoint_dir: str | Path) -> None:
+        checkpoint_dir = Path(checkpoint_dir)
+        self.actor.load(checkpoint_dir / "actor.ckpt")
+        self.critic.load(checkpoint_dir / "critic.ckpt")
+        self.target_critic.load(checkpoint_dir / "target_critic.ckpt")
+        self.alpha.load(checkpoint_dir / "alpha.ckpt")
+        normalizer_checkpoint_dir = checkpoint_dir / "reward_normalizer.ckpt"
+        if self.reward_normalizer is not None and normalizer_checkpoint_dir.is_dir():
+            self.reward_normalizer.load(normalizer_checkpoint_dir)

@@ -1,7 +1,7 @@
-from dataclasses import dataclass
 from typing import Any, Optional
 import jax
 import jax.numpy as jnp
+from flax import nnx
 from tensorflow_probability.substrates import jax as tfp
 
 tfd = tfp.distributions
@@ -11,31 +11,6 @@ tfb = tfp.bijectors
 def _as_float_array(x: jax.Array) -> jax.Array:
     return jnp.asarray(x, dtype=jnp.float32)
 
-
-def flattened_dim(spec: Any) -> int:
-    """Converts an observation size spec into a flat integer dimension.
-
-    The MuJoCo Playground/Brax API may expose observation sizes as:
-      - int (already a dimension)
-      - tuple[int, ...] / list[int] (shape)
-    """
-    if isinstance(spec, int):
-        return int(spec)
-    if isinstance(spec, (tuple, list)):
-        dim = 1
-        for v in spec:
-            dim *= int(v)
-        return int(dim)
-    raise TypeError(f"Unsupported observation size spec type: {type(spec)}")
-
-
-def split_observation(observations: Any) -> tuple[jax.Array, jax.Array]:
-    """Extract actor and critic inputs from observations."""
-    if isinstance(observations, dict):
-        actor_obs = observations.get("state")
-        critic_obs = observations.get("privileged_state")
-        return actor_obs, critic_obs
-    return observations, observations
 
 
 def action_scale_bias(action_low: jax.Array, action_high: jax.Array) -> tuple[jax.Array, jax.Array]:
@@ -49,7 +24,10 @@ def action_scale_bias(action_low: jax.Array, action_high: jax.Array) -> tuple[ja
     return scale, bias
 
 
-def make_action_affine_bijector(action_low: jax.Array, action_high: jax.Array) -> tfb.Bijector:
+def make_action_affine_bijector(
+    action_low: jax.Array,
+    action_high: jax.Array,
+) -> Any:
     """Creates an affine bijector that maps [-1, 1] -> [low, high]."""
     scale, bias = action_scale_bias(action_low, action_high)
     return tfb.Chain([tfb.Shift(shift=bias), tfb.Scale(scale=scale)])
@@ -99,6 +77,10 @@ def squash_log_std_tanh(log_std: jax.Array, *, log_std_min: float, log_std_max: 
     return log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std + 1.0)
 
 
+def _column_log_prob(log_prob: jax.Array) -> jax.Array:
+    return jnp.reshape(log_prob, (-1, 1))
+
+
 def squash_tanh_action(pre_action: jax.Array, pre_log_prob: jax.Array, action_low: jax.Array, action_high: jax.Array):
     """Apply tanh squashing with affine action scaling and corrected log-prob."""
     scale, bias = action_scale_bias(action_low, action_high)
@@ -113,9 +95,7 @@ def squash_tanh_action(pre_action: jax.Array, pre_log_prob: jax.Array, action_lo
     else:
         logdet_affine = jnp.sum(log_scale, axis=-1)
     log_prob = pre_log_prob - logdet_tanh - logdet_affine
-    if getattr(pre_log_prob, "ndim", None) == 2:
-        log_prob = log_prob[:, None]
-    return action, log_prob
+    return action, _column_log_prob(log_prob)
 
 
 def diagonal_gaussian_kl(mu_c: jax.Array, std_c: jax.Array, mu_o: jax.Array, std_o: jax.Array) -> jax.Array:
@@ -149,13 +129,17 @@ def mask_logits(
     return jnp.where(any_valid, masked, jnp.zeros_like(masked))
 
 
-@dataclass(frozen=True)
-class MaskedCategoricalPolicy:
+class MaskedCategoricalPolicy(nnx.Module):
     """Categorical policy over discrete actions with an optional legality mask."""
 
-    invalid_logit: float = -1e9
+    def __init__(self, invalid_logit: float = -1e9):
+        self.invalid_logit = invalid_logit
 
-    def dist(self, logits: jax.Array, legal_action_mask: Optional[jax.Array] = None) -> tfd.Distribution:
+    def dist(
+        self,
+        logits: jax.Array,
+        legal_action_mask: Optional[jax.Array] = None,
+    ) -> Any:
         masked_logits = mask_logits(
             logits, legal_action_mask, invalid_logit=self.invalid_logit
         )
@@ -169,7 +153,7 @@ class MaskedCategoricalPolicy:
     ) -> tuple[jax.Array, jax.Array]:
         d = self.dist(logits, legal_action_mask)
         action = d.sample(seed=key).astype(jnp.int32)
-        log_prob = d.log_prob(action)
+        log_prob = _column_log_prob(d.log_prob(action))
         return action, log_prob
 
     def greedy_action(self, logits: jax.Array, legal_action_mask: Optional[jax.Array] = None) -> jax.Array:
@@ -179,15 +163,20 @@ class MaskedCategoricalPolicy:
         return jnp.argmax(masked_logits, axis=-1).astype(jnp.int32)
 
 
-@dataclass(frozen=True)
-class GaussianPolicy:
+class GaussianPolicy(nnx.Module):
     """Diagonal Gaussian policy (no tanh squashing)."""
 
-    log_std_min: float = -10.0
-    log_std_max: float = 2.0
-    squash_log_std: bool = False
+    def __init__(
+        self,
+        log_std_min: float = -10.0,
+        log_std_max: float = 2.0,
+        squash_log_std: bool = False,
+    ):
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
+        self.squash_log_std = squash_log_std
 
-    def dist(self, mean: jax.Array, log_std: jax.Array) -> tfd.Distribution:
+    def dist(self, mean: jax.Array, log_std: jax.Array) -> Any:
         if self.squash_log_std:
             log_std = self.transform_log_std(log_std)
         std = jnp.exp(log_std)
@@ -198,7 +187,7 @@ class GaussianPolicy:
     ) -> tuple[jax.Array, jax.Array]:
         d = self.dist(mean, log_std)
         action = d.sample(seed=key)
-        log_prob = d.log_prob(action)
+        log_prob = _column_log_prob(d.log_prob(action))
         return action, log_prob
 
     def transform_log_std(self, log_std: jax.Array):
@@ -208,23 +197,43 @@ class GaussianPolicy:
         return log_std
 
 
-@dataclass(frozen=True)
-class SquashedTanhGaussianPolicy:
+class _BoundedActionPolicy(nnx.Module):
+    def __init__(self, action_low: jax.Array, action_high: jax.Array):
+        action_low = _as_float_array(action_low)
+        action_high = _as_float_array(action_high)
+        action_scale, action_bias = action_scale_bias(action_low, action_high)
+        self.action_low = nnx.Variable(action_low)
+        self.action_high = nnx.Variable(action_high)
+        self.action_scale = nnx.Variable(action_scale)
+        self.action_bias = nnx.Variable(action_bias)
+
+    def mean_action(self, pre_tanh: jax.Array) -> jax.Array:
+        return jnp.tanh(pre_tanh) * self.action_scale.value + self.action_bias.value
+
+
+class SquashedTanhGaussianPolicy(_BoundedActionPolicy):
     """Tanh-squashed diagonal Gaussian policy (SAC-style)."""
 
-    action_low: jax.Array
-    action_high: jax.Array
-    log_std_min: float = -10.0
-    log_std_max: float = 2.0
-    squash_log_std: bool = True
+    def __init__(
+        self,
+        action_low: jax.Array,
+        action_high: jax.Array,
+        log_std_min: float = -10.0,
+        log_std_max: float = 2.0,
+        squash_log_std: bool = True,
+    ):
+        super().__init__(action_low, action_high)
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
+        self.squash_log_std = squash_log_std
 
-    def dist(self, mean: jax.Array, log_std: jax.Array) -> tfd.Distribution:
+    def dist(self, mean: jax.Array, log_std: jax.Array) -> Any:
         if self.squash_log_std:
             log_std = self.transform_log_std(log_std)
         std = jnp.exp(log_std)
         base = tfd.MultivariateNormalDiag(loc=mean, scale_diag=std)
-        scale, bias = action_scale_bias(self.action_low, self.action_high)
-        # Note: TFP's Tanh bijector accounts for the log-det Jacobian in log_prob.
+        scale = self.action_scale.value
+        bias = self.action_bias.value
         bijector = tfb.Chain(
             [
                 tfb.Shift(shift=bias),
@@ -239,7 +248,7 @@ class SquashedTanhGaussianPolicy:
     ) -> tuple[jax.Array, jax.Array]:
         d = self.dist(mean, log_std)
         action = d.sample(seed=key)
-        log_prob = d.log_prob(action)
+        log_prob = _column_log_prob(d.log_prob(action))
         return action, log_prob
 
     def transform_log_std(self, log_std: jax.Array):
@@ -249,28 +258,26 @@ class SquashedTanhGaussianPolicy:
         return log_std
 
 
-@dataclass(frozen=True)
-class TanhDeterministicPolicy:
+class TanhDeterministicPolicy(_BoundedActionPolicy):
     """Deterministic tanh policy (no stochasticity)."""
 
-    action_low: jax.Array
-    action_high: jax.Array
-
     def action(self, pre_tanh: jax.Array) -> jax.Array:
-        scale, bias = action_scale_bias(self.action_low, self.action_high)
-        return jnp.tanh(pre_tanh) * scale + bias
+        return self.mean_action(pre_tanh)
 
 
-@dataclass(frozen=True)
-class MultivariateBetaPolicy:
+class MultivariateBetaPolicy(_BoundedActionPolicy):
     """Independent Beta distribution per action dimension, mapped to [low, high]."""
 
-    action_low: jax.Array
-    action_high: jax.Array
-    epsilon: float = 1e-4
+    def __init__(
+        self,
+        action_low: jax.Array,
+        action_high: jax.Array,
+        epsilon: float = 1e-4,
+    ):
+        super().__init__(action_low, action_high)
+        self.epsilon = epsilon
 
-    def dist(self, alpha: jax.Array, beta: jax.Array) -> tfd.Distribution:
-        # Ensure positivity of concentration parameters.
+    def dist(self, alpha: jax.Array, beta: jax.Array) -> Any:
         alpha = jax.nn.softplus(alpha) + self.epsilon
         beta = jax.nn.softplus(beta) + self.epsilon
 
@@ -278,9 +285,8 @@ class MultivariateBetaPolicy:
             tfd.Beta(concentration1=alpha, concentration0=beta),
             reinterpreted_batch_ndims=1,
         )
-        # Map (0, 1) -> [low, high] with an affine transform.
-        scale, bias = action_scale_bias(self.action_low, self.action_high)
-        # Beta support is (0, 1). Affine is safe (no boundary at 0/1 sampled in practice).
+        scale = self.action_scale.value
+        bias = self.action_bias.value
         bijector = tfb.Chain(
             [tfb.Shift(shift=bias - scale), tfb.Scale(scale=2.0 * scale)])
         return tfd.TransformedDistribution(base, bijector)
@@ -290,5 +296,5 @@ class MultivariateBetaPolicy:
     ) -> tuple[jax.Array, jax.Array]:
         d = self.dist(alpha, beta)
         action = d.sample(seed=key)
-        log_prob = d.log_prob(action)
+        log_prob = _column_log_prob(d.log_prob(action))
         return action, log_prob
