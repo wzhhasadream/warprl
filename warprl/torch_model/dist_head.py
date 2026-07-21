@@ -37,8 +37,9 @@ class CategoricalPolicy(nn.Module):
             v_max,
         ).expand_as(target_logits)
         b = (target_values - v_min) / bin_width
-        lower = b.floor().long()
-        upper = b.ceil().long()
+        max_bin = bins.shape[-1] - 1
+        lower = b.floor().long().clamp(0, max_bin)
+        upper = b.ceil().long().clamp(0, max_bin)
         probs = target_logits.softmax(dim=-1)
         projected = torch.zeros_like(probs)
         projected.scatter_add_(
