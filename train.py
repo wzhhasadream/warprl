@@ -58,7 +58,7 @@ class Args:
     record_video: Literal[True, False] = False
     save_agent: Literal[True, False] = False
     save_onnx: Literal[True, False] = False
-    dist_type: Literal["quantile", "ce", "scalar"] = "quantile"
+    dist_type: Literal["quantile", "ce", "scalar"] = "ce"
     q_agg: Literal["mean", "min"] = "min"
     log_path: str = "warpsac"
     action_repeat: int = 1

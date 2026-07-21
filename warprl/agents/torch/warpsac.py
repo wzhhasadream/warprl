@@ -234,6 +234,7 @@ class WarpSACAgent:
             self.reward_normalizer.load(checkpoint_dir / "reward_normalizer.pt")
 
     def save_onnx(self, onnx_dir: str | Path) -> None:
+        onnx_dir = Path(onnx_dir)
         self.actor.save_onnx(
             onnx_dir / "policy.onnx",
             [("B", self.actor_observation_dim)],
