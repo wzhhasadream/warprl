@@ -10,8 +10,7 @@ def build_truncated_zeta_cdf(
     """Build a truncated zeta CDF over integers [1, max_n]."""
     ns = jnp.arange(1, max_n + 1, dtype=dtype)
     pmf = ns ** (-jnp.asarray(mu, dtype=dtype))
-    pmf = pmf / jnp.sum(pmf)
-    return jnp.cumsum(pmf)
+    return jnp.cumsum(pmf / jnp.sum(pmf))
 
 
 def sample_integer_from_cdf(
@@ -19,10 +18,9 @@ def sample_integer_from_cdf(
     cdf: jax.Array,
     shape: tuple[int, ...] = (),
 ) -> jax.Array:
-    """Sample 1-indexed integers from a CDF, matching FlashSAC's repeat length format."""
+    """Sample 1-indexed integers from a CDF."""
     uniforms = jax.random.uniform(key, shape=shape, dtype=cdf.dtype)
-    indices = jnp.argmax(uniforms[..., None] < cdf, axis=-1)
-    return (indices + 1).astype(jnp.int32)
+    return (jnp.argmax(uniforms[..., None] < cdf, axis=-1) + 1).astype(jnp.int32)
 
 
 def sample_truncated_zeta(
@@ -32,6 +30,9 @@ def sample_truncated_zeta(
     shape: tuple[int, ...] = (),
     dtype: jnp.dtype = jnp.float32,
 ) -> jax.Array:
-    """Sample repeat lengths from the truncated zeta distribution used by FlashSAC."""
-    cdf = build_truncated_zeta_cdf(mu=mu, max_n=max_n, dtype=dtype)
-    return sample_integer_from_cdf(key, cdf, shape=shape)
+    """Sample repeat lengths from the truncated zeta distribution."""
+    return sample_integer_from_cdf(
+        key,
+        build_truncated_zeta_cdf(mu=mu, max_n=max_n, dtype=dtype),
+        shape=shape,
+    )

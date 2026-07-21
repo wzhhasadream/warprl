@@ -1,14 +1,13 @@
-import nnxrl.utils.logger as wandb
+import warprl.utils.logger as wandb
 from typing import Literal
-from config import resolve_profile
-from nnxrl.agents import WarpSACAgent
-from nnxrl.env import create_envs
-from nnxrl.utils import (
+from warprl import resolve_profile
+from warprl.env import create_envs
+from warprl.utils import (
     evaluate_policy, 
     replace_done_next_obs, 
     record_video
 )
-from nnxrl.buffers import Transition
+from warprl.buffers import Transition
 import numpy as np
 import tyro
 import dataclasses
@@ -22,7 +21,7 @@ class Args:
                       'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab', 'holosoma'] = 'dmc'
 
     seed: int = 1
-
+    backend: Literal["torch", "jax"] = "jax"
     ##############    depends on env_type ###################
     num_envs: int | None = None
     total_timesteps: int | None = None
@@ -100,7 +99,10 @@ def main():
         seed=args.seed,
         render_mode=render_mode,
     )
-
+    if args.backend == "torch":
+        from warprl.agents.torch import WarpSACAgent
+    elif args.backend == "jax":
+        from warprl.agents.jax import WarpSACAgent
     agent = WarpSACAgent(train_envs, args)
     wandb.init(
         project=args.log_path,

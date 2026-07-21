@@ -1,10 +1,9 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from .flashsacnetwork import FlashSACActor
-from nnxrl.model import RewardNormalizer
-from nnxrl.utils import sample_truncated_zeta, select_actor_observations
-
+from ...jax_model import RewardNormalizer, FlashSACActor
+from .zeta_dist import sample_truncated_zeta
+from ...utils import select_actor_observations
 
 @nnx.jit(static_argnames=("asymmetric_obs",))
 def get_eval_action(

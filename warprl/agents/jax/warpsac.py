@@ -1,18 +1,12 @@
 from copy import deepcopy
-
 import jax
 import jax.numpy as jnp
 from flax import nnx
 import numpy as np
 from optax import adam, cosine_decay_schedule
-from nnxrl.env import CPU_SIM
-from nnxrl.buffers import Transition
-from nnxrl.buffers.jax_buffer import JaxBuffer
-from nnxrl.model import Alpha, Network, RewardNormalizer
-from .flashsacnetwork import FlashSACActor, FlashSACDoubleCritic
-from nnxrl.utils import (
-    default_learner_device
-)
+from ...buffers import Transition
+from ...buffers.jax_buffer import JaxBuffer
+from ...jax_model import Alpha, Network, RewardNormalizer, FlashSACActor, FlashSACDoubleCritic
 from gymnasium.vector import VectorEnv
 from .get_action import (
     get_eval_action,
@@ -24,6 +18,13 @@ from pathlib import Path
 
 
 
+def default_learner_device() -> jax.Device:
+    try:
+        gpu_devices = jax.devices("gpu")
+    except RuntimeError:
+        gpu_devices = []
+    return gpu_devices[0] if gpu_devices else jax.devices("cpu")[0]
+
 class WarpSACAgent:
     def __init__(
         self,
@@ -34,10 +35,6 @@ class WarpSACAgent:
         self.observation_space = envs.single_observation_space
         self.action_space = envs.single_action_space
         self.num_envs = envs.num_envs
-        if self.observation_space.shape is None:
-            raise ValueError("WarpSAC requires a fixed-shape observation space")
-        if self.action_space.shape is None:
-            raise ValueError("WarpSAC requires a fixed-shape action space")
         self.observation_shape = tuple(self.observation_space.shape)
         self.action_dim = int(np.prod(np.asarray(self.action_space.shape)))
         self.critic_observation_dim = int(
@@ -129,7 +126,7 @@ class WarpSACAgent:
             linear_decay_step=self.cfg.decay_step,
             n_step=self.cfg.n_step,
             gamma=self.cfg.gamma,
-            use_approximate_sampling=self.cfg.env_type in CPU_SIM,
+            use_approximate_sampling=self.cfg.buffer_device == "cpu",
             device=self.cfg.buffer_device,
         )
 
@@ -166,6 +163,7 @@ class WarpSACAgent:
                 adam(cosine_decay_schedule(policy_lr, num_critic_updates, end_lr / policy_lr)),
                 wrt=nnx.Param,
             ),
+            forward_name="get_mean_action",
         )
         self.critic = Network(
             critic_model,
@@ -272,18 +270,10 @@ class WarpSACAgent:
     def save_onnx(self, onnx_dir: str | Path) -> None:
         onnx_dir = Path(onnx_dir)
         onnx_dir.mkdir(parents=True, exist_ok=True)
-        onnx_file = onnx_dir / "policy.onnx"
-        import onnx
-        from jax2onnx import to_onnx
-        input_shape = ("B", self.actor_observation_dim)
-
-        def policy_fn(obs: jax.Array) -> jax.Array:
-            actor_obs = obs.reshape((-1, self.actor_observation_dim))
-            return self.actor.model.get_mean_action(actor_obs)
-
-        
-        model = to_onnx(policy_fn, [input_shape])
-        onnx.save(model, onnx_file)
+        self.actor.save_onnx(
+            onnx_dir / "policy.onnx",
+            [("B", self.actor_observation_dim)],
+        )
 
 
     def load(self, checkpoint_dir: str | Path) -> None:

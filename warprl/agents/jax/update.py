@@ -3,17 +3,17 @@ from typing import Literal, Protocol
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from nnxrl.model import (
+from ...jax_model import (
     Alpha, 
     Network, 
     CategoricalPolicy, 
     QuantilePolicy, 
-    RewardNormalizer)
-from .flashsacnetwork import FlashSACActor, FlashSACDoubleCritic
-from ..utils import (
+    RewardNormalizer,
+    FlashSACActor, FlashSACDoubleCritic)
+from ...utils import (
     select_actor_observations,
 )
-from nnxrl.buffers import Batch
+from ...buffers import Batch
 
 
 class WarpSACConfig(Protocol):

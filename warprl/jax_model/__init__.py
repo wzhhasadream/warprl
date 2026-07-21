@@ -7,6 +7,9 @@ import orbax.checkpoint as ocp
 from pathlib import Path
 from .dist_head import CategoricalPolicy, QuantilePolicy
 from .normalization import RewardNormalizer, RMS
+from .flashsac import FlashSACQNetwork, FlashSACActor, FlashSACDoubleCritic
+
+
 
 ModelT = TypeVar("ModelT", bound=nnx.Module)
 class Network(nnx.Module, Generic[ModelT]):
@@ -16,6 +19,7 @@ class Network(nnx.Module, Generic[ModelT]):
         opt: nnx.Optimizer | None = None,
         source_model: nnx.Module | None = None,
         tau: float | None = None,
+        forward_name: str | None = None,
     ) -> None:
         if (source_model is None) != (tau is None):
             raise ValueError("target_model and tau must be provided together")
@@ -24,6 +28,7 @@ class Network(nnx.Module, Generic[ModelT]):
         self.opt = opt
         self.tau = tau
         self.source_model = source_model
+        self.forward_name = forward_name
 
     def grad_step(self, grads: nnx.State):
         if self.opt is not None:
@@ -37,6 +42,8 @@ class Network(nnx.Module, Generic[ModelT]):
         project_param(self.model)
 
     def __call__(self, *args, **kwargs):
+        if self.forward_name is not None:
+            return getattr(self.model, self.forward_name)(*args, **kwargs)
         return self.model(*args, **kwargs)
 
 
@@ -61,6 +68,28 @@ class Network(nnx.Module, Generic[ModelT]):
             restored = ckpt.restore(checkpoint_dir, template)
 
         nnx.update(objects, restored)
+
+    def save_onnx(
+        self,
+        file: str | Path,
+        input_shapes: list[tuple[int | str, ...]],
+    ) -> None:
+        """Export this network with JAX-style input shape specifications.
+
+        Each tuple describes one positional input. Integer dimensions are
+        fixed; string dimensions are symbolic and dynamic. Reusing a symbol
+        requires those dimensions to match across inputs.
+        """
+        import onnx
+        from jax2onnx import to_onnx
+
+        out_file = Path(file)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        self.model.eval()
+        try:
+            onnx.save(to_onnx(self, input_shapes), out_file)
+        finally:
+            self.model.train()
 
 
 

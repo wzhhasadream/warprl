@@ -7,7 +7,7 @@ from gymnasium import spaces
 
 from .types import Batch, Transition
 from .base_buffer import BaseBuffer
-
+import torch.utils._pytree as pytree
 
 _NP_TO_TORCH_DTYPE: dict[np.dtype[Any], torch.dtype] = {
     np.dtype(np.float64): torch.float32,
@@ -18,7 +18,6 @@ _NP_TO_TORCH_DTYPE: dict[np.dtype[Any], torch.dtype] = {
     np.dtype(np.uint8): torch.uint8,
     np.dtype(np.bool_): torch.bool,
 }
-
 
 def _to_torch_dtype(dtype: Any) -> torch.dtype:
     dtype = np.dtype(dtype)
@@ -242,7 +241,7 @@ class TorchBuffer(BaseBuffer):
 
     def load(self, path: str) -> None:
         data = torch.load(path)
-        for key, value in data:
+        for key, value in data.items():
             setattr(self, key, value)
 
     def __len__(self) -> int:

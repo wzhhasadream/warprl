@@ -5,9 +5,9 @@ from typing import Literal
 from flax import nnx
 from flax.typing import Dtype
 
-from nnxrl.model.layer import orthogonal, Encoder
-from nnxrl.model.policy import SquashedTanhGaussianPolicy
-from nnxrl.model.dist_head import CategoricalPolicy, QuantilePolicy
+from .layer import orthogonal, Encoder
+from .policy import SquashedTanhGaussianPolicy
+from .dist_head import CategoricalPolicy, QuantilePolicy
 
 
 def _flattened_dim(observation_dim: int | tuple[int, ...]) -> int:
@@ -134,7 +134,7 @@ class FlashSACQNetwork(nnx.Module):
         elif self.dist_type == "ce":
             self.policy = CategoricalPolicy(num_head, -5, 5)
         elif self.dist_type == "quantile":
-            self.policy = QuantilePolicy(num_head, 1)
+            self.policy = QuantilePolicy(num_head)
         else:
             raise ValueError(f"Unsupported dist_type: {dist_type}")
 
