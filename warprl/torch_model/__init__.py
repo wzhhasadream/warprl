@@ -49,7 +49,7 @@ class Network(nn.Module, Generic[ModelT]):
         self.forward_name = forward_name
 
         if opt is not None:
-            self.opt_step = opt.step
+            self.opt_step = torch.compile(opt.step, mode=compile_mode)
 
 
         self.target_params: tuple[torch.Tensor, ...] | None = None
@@ -65,7 +65,7 @@ class Network(nn.Module, Generic[ModelT]):
         if self.opt is None:
             raise RuntimeError("grad_step requires an optimizer")
 
-        self.opt.zero_grad(set_to_none=True)
+        self.opt.zero_grad(set_to_none=True)    # the only one that can't be compile
 
         if self.grad_scaler is None:
             loss.backward()
@@ -87,11 +87,13 @@ class Network(nn.Module, Generic[ModelT]):
 
 
     @torch.no_grad()
+    @torch.compile(mode=compile_mode)
     def project_param(self) -> None:
         project_param(self.model)
 
 
     @torch.no_grad()
+    @torch.compile(mode=compile_mode)
     def soft_update(self) -> None:
         assert self.target_params is not None
         assert self.source_params is not None

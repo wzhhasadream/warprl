@@ -212,7 +212,7 @@ class WarpSACAgent:
                 batch,
                 self.cfg
             )
-            info = pytree.tree_map(lambda x: x.clone().detach().cpu().numpy(), info)
+            info = pytree.tree_map(lambda x: x.detach().cpu().numpy(), info)
         return info
 
     def save(self, checkpoint_dir: str | Path) -> None:

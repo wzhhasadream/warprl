@@ -17,6 +17,8 @@ from ...torch_model import (
 from ...utils import select_actor_observations
 import torch.utils._pytree as pytree
 
+
+compile_mode = "max-autotune"
 class WarpSACConfig(Protocol):
     seed: int
     env_type: str
@@ -94,6 +96,7 @@ def _categorical_loss(
     return policy.loss(q_logits, targets).mean(), policy.q_values(q_logits).mean()
 
 
+@torch.compile(mode=compile_mode)
 def critic_loss(
     actor: Network[FlashSACActor],
     critic: Network[FlashSACDoubleCritic],
@@ -168,7 +171,7 @@ def update_critic(
 
     return info
 
-
+@torch.compile(mode=compile_mode)
 def actor_loss(
     critic: Network[FlashSACDoubleCritic],
     actor: Network[FlashSACActor],
@@ -205,6 +208,7 @@ def actor_loss(
     }
 
 
+@torch.compile(mode=compile_mode)
 def alpha_loss(
     alpha: Network[Alpha],
     entropy: torch.Tensor,
@@ -230,10 +234,12 @@ def update_policy(
         loss, actor_info = actor_loss(critic, actor, alpha, config, batch)
     actor.grad_step(loss)
     critic.model.requires_grad_(True)
+    actor_info = pytree.tree_map(lambda x : x.clone(), actor_info)
     if config.normalize_parameters:
         actor.project_param()
     loss, alpha_info = alpha_loss(alpha, actor_info["training/entropy"], config)
     alpha.grad_step(loss)
+    alpha_info = pytree.tree_map(lambda x : x.clone(), alpha_info)
     return {
         **actor_info,
         **alpha_info,
@@ -242,11 +248,6 @@ def update_policy(
 
 
 
-# `fullgraph=False` permits Optimizer.zero_grad(set_to_none=True), which
-# mutates Python-side `.grad` state and is Dynamo-skipped. It is the only
-# explicit Dynamo break reason observed here; AOTAutograd still partitions
-# forward and backward into internal segments.
-@torch.compile(mode="max-autotune")
 def update_warpsac(
     critic: Network[FlashSACDoubleCritic],
     actor: Network[FlashSACActor],
