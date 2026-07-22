@@ -16,12 +16,12 @@ import tqdm
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'holosoma', 'sim2real'] = "auto"
 
-    env_id: str = "humanoid-run"
+    env_id: str = "Unitree-G1-Flat"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab', 'holosoma'] = 'dmc'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab', 'holosoma'] = 'mjlab'
 
     seed: int = 1
-    backend: Literal["torch", "jax"] = "torch"
+    backend: Literal["torch", "jax"] = "jax"
     ##############    depends on env_type ###################
     num_envs: int | None = None
     total_timesteps: int | None = None

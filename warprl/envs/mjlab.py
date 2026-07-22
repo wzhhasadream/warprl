@@ -74,6 +74,17 @@ def recursive_to_numpy(
         return data
 
 
+def action_to_unbounded(
+    action: torch.Tensor,
+    *,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Invert the bounded tanh action transform."""
+    if not 0.0 < eps < 1.0:
+        raise ValueError(f"eps must be in (0, 1), got {eps}")
+    normalized = action.clamp(-1.0 + eps, 1.0 - eps)
+    return torch.atanh(normalized)
+
 
 class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
     """Gymnasium VectorEnv wrapping mjlab's ManagerBasedRlEnv for FlashSAC.
@@ -99,6 +110,7 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
         device: str = "cuda:0",
         to_numpy: bool = True,
         render_mode: str | None = None,
+        unbound_actions: bool = False
     ) -> None:
         import mjlab.tasks  # noqa: F401  # populates the task registry via side effects
         from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -109,6 +121,7 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
         env_cfg.scene.num_envs = num_envs
         env_cfg.seed = seed
         env_cfg.auto_reset = False  # we handle resets to preserve the terminal obs
+        self.unbound_actions = unbound_actions
 
         self._env = ManagerBasedRlEnv(
             cfg=env_cfg,
@@ -217,6 +230,8 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
             actions_t = torch.from_numpy(actions).float().to(self._device)
         else:
             actions_t = actions.to(self._device)
+        if self.unbound_actions:
+            actions_t = action_to_unbounded(actions_t)
 
         obs_dict, rewards, terminateds, truncateds, extras = self._env.step(
             actions_t)
@@ -322,6 +337,7 @@ def make_mjlab_env(
     seed: int,
     device: str = "cuda:0" if torch.cuda.is_available() else "cpu",
     render_mode: str | None = None,
+    unbound_actions: bool = False
 ) -> MjlabVectorEnv:
     return MjlabVectorEnv(
         task_id=task_id,
@@ -329,4 +345,5 @@ def make_mjlab_env(
         seed=seed,
         device=device,
         render_mode=render_mode,
+        unbound_actions=unbound_actions
     )
