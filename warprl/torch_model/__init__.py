@@ -138,6 +138,7 @@ class Network(nn.Module, Generic[ModelT]):
         self,
         file: str | Path,
         input_shapes: list[tuple[int | str, ...]],
+        external_data: bool = False
     ) -> None:
         """Export this network with JAX-style input shape specifications.
 
@@ -175,6 +176,7 @@ class Network(nn.Module, Generic[ModelT]):
                 tuple(example_inputs),
                 out_file,
                 dynamic_shapes=(tuple(dynamic_shapes),),
+                external_data=external_data
             )
         finally:
             self.train(was_training)
