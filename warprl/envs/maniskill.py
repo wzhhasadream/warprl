@@ -155,6 +155,9 @@ class ManiSkillVectorEnv(VectorEnv[Array, Array, Array]):
         return obs, rew, terminations, truncations, infos
 
     def close(self, **kwargs: Any) -> None:
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
         self.envs.close(**kwargs)  # type: ignore
 
     def call(self, name: str, *args: Any, **kwargs: Any) -> Any:
