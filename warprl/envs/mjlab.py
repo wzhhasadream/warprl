@@ -6,21 +6,14 @@ from pathlib import Path
 from typing import Any, Union
 
 import gymnasium as gym
-import jax.numpy as jnp
 import numpy as np
-import numpy.typing as npt
 import torch
 from gymnasium.core import RenderFrame
 from gymnasium.vector import VectorEnv
 from gymnasium.vector.utils import batch_space
+from .types import F32NDArray, NDArray
 
-NDArray = npt.NDArray[Any]
-F32NDArray = npt.NDArray[np.float32]
-Tensor = Union[NDArray, jnp.ndarray, torch.Tensor]
-
-
-
-MJLAB_TASK_ID = [
+SIM2REAL_TASK_ID = (
     "Unitree-Go2-Flat",
     "Unitree-Go2-Rough",
     "Unitree-A2-Flat",
@@ -37,7 +30,8 @@ MJLAB_TASK_ID = [
     "Unitree-H2-Rough",
     "Unitree-R1-Flat",
     "Unitree-R1-Rough",
-]
+)
+
 
 
 def _register_unitree_rl_mjlab_tasks(task_id: str) -> None:

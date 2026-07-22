@@ -1,5 +1,5 @@
 from typing import Any
-
+from ..envs.mjlab import SIM2REAL_TASK_ID
 CPU_ENV_TYPES = {"mujoco", "myosuite", "dmc", "humanoid_bench"}
 GPU_ENV_TYPES = {"playground", "isaaclab", "maniskill", "mjlab", "holosoma"}
 
@@ -96,6 +96,21 @@ PROFILE_DEFAULTS = {
         eval_episode=50,
         num_eval_envs=50,
     ),
+    "sim2real": dict(
+        num_envs=1024,
+        total_timesteps=50_000_896 * 2,
+        buffer_size=10_000_000,
+        learning_starts=100_000,
+        batch_size=2048,
+        grad_step_per_interaction_step=2,
+        gamma=0.99,
+        decay_step=2_000,
+        compute_type='bfloat16',
+        n_step=3,
+        buffer_device="cuda",
+        eval_episode=50,
+        num_eval_envs=50,
+    ),
 }
 
 
@@ -104,6 +119,8 @@ def resolve_profile(args: Any) -> Any:
     if profile == "auto":
         if args.env_type in GPU_ENV_TYPES:
             profile = args.env_type
+            if args.env_type == "mjlab" and args.env_id in SIM2REAL_TASK_ID:
+                profile = "sim2real"
         elif args.env_type in CPU_ENV_TYPES:
             profile = "cpu_sim"
         else:

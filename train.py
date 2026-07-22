@@ -1,7 +1,7 @@
 import warprl.utils.logger as wandb
 from typing import Literal
 from warprl import resolve_profile
-from warprl.env import create_envs
+from warprl.envs import create_envs
 from warprl.utils import (
     evaluate_policy, 
     replace_done_next_obs, 
@@ -14,11 +14,11 @@ import dataclasses
 import tqdm
 @dataclasses.dataclass
 class Args:
-    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'holosoma'] = "auto"
+    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'holosoma', 'sim2real'] = "auto"
 
-    env_id: str = "FishSwim"
+    env_id: str = "humanoid-run"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab', 'holosoma'] = 'playground'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab', 'holosoma'] = 'dmc'
 
     seed: int = 1
     backend: Literal["torch", "jax"] = "torch"

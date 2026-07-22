@@ -24,10 +24,10 @@ def get_exploration_action(
     actor: FlashSACActor,
     asymmetric_obs: bool,
     observations: torch.Tensor,
-    repeat_n: torch.int64,
-    repeat_count: torch.int64,
-    cached_noise: torch.int64,
-    noise: torch.int64,
+    repeat_n: torch.Tensor,
+    repeat_count: torch.Tensor,
+    cached_noise: torch.Tensor,
+    noise: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     obs = select_actor_observations(
         observations, asymmetric_obs, actor.obs_dim

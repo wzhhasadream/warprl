@@ -1,6 +1,4 @@
 from typing import Callable
-
-import gymnasium
 import numpy as np
 from gymnasium.vector import VectorEnv
 

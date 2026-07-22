@@ -11,8 +11,7 @@ from mujoco_playground import registry
 from mujoco_playground._src.mjx_env import MjxEnv, State
 from mujoco_playground._src.wrapper import Wrapper
 from functools import partial
-
-NDArray = jnp.ndarray | np.ndarray
+from .types import NDArray
 
 jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")  # type: ignore
 jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)  # type: ignore

@@ -29,10 +29,16 @@ class Network(nnx.Module, Generic[ModelT]):
         self.tau = tau
         self.source_model = source_model
         self.forward_name = forward_name
+        self._grad_updates = nnx.Variable(jnp.asarray(0, dtype=jnp.int32))
+
+    @property
+    def grad_updates(self) -> jax.Array:
+        return self._grad_updates.value
 
     def grad_step(self, grads: nnx.State):
         if self.opt is not None:
             self.opt.update(grads)
+            self._grad_updates.value += 1
 
     def soft_update(self) -> None:
         if self.source_model is not None:

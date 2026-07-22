@@ -5,12 +5,7 @@ import numpy as np
 import torch
 from gymnasium.vector import VectorEnv
 from gymnasium.vector.utils import batch_space
-import jax.numpy as jnp
-import numpy.typing as npt
-
-NDArray = npt.NDArray[Any]
-F32NDArray = npt.NDArray[np.float32]
-Tensor = Union[NDArray, jnp.ndarray, torch.Tensor]
+from .types import F32NDArray, Tensor
 
 G1_29DOF_ENV_ID = "Unitree-G1-29dof-Velocity"
 

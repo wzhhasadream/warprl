@@ -1,13 +1,12 @@
-from typing import Callable, Any
+from typing import Callable, Optional
 import jax
 import jax.numpy as jnp
 from flax import nnx
 from flax.typing import Dtype
 
 
-def orthogonal(scale: jax.Array = jnp.sqrt(2)):
+def orthogonal(scale: jax.Array = 1):
     return nnx.initializers.orthogonal(scale)
-
 
 class MLP(nnx.Module):
     def __init__(

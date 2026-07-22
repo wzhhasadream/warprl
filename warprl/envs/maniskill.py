@@ -9,7 +9,7 @@ from mani_skill.utils.common import torch_clone_dict
 from mani_skill.utils.structs.types import Array
 import numpy as np
 
-NDArray = Union[np.ndarray, torch.Tensor]
+from .types import NDArray
 
 
 def recursive_to_numpy(

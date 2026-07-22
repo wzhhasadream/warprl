@@ -202,7 +202,6 @@ class WarpSACAgent:
         self.cached_key = jax.random.PRNGKey(0)
         self.repeat_count = jnp.array(0, dtype=jnp.int32)
         self.repeat_n = jnp.array(1, dtype=jnp.int32)
-        self.critic_grad_updates = jnp.array(0, dtype=jnp.int32)
 
 
     def get_action(self, obs: jax.Array | np.ndarray):
@@ -249,8 +248,7 @@ class WarpSACAgent:
         )
         batch = jax.tree.map(lambda x: jax.device_put(x, self.learner_device), batch)
         self._update_key, update_key = jax.random.split(self._update_key)
-        self.critic_grad_updates, info = self._update_fn(
-            self.critic_grad_updates,
+        info = self._update_fn(
             update_key,
             batch,
         )
