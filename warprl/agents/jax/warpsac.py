@@ -272,7 +272,7 @@ class WarpSACAgent:
         onnx_dir.mkdir(parents=True, exist_ok=True)
         self.actor.save_onnx(
             onnx_dir / "policy.onnx",
-            [("B", self.actor_observation_dim)],
+            [(1, self.actor_observation_dim)],
         )
 
 

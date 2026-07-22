@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from typing import TypeVar, Generic
+from typing import TypeVar, Generic, Sequence
 from .normalize_params import project_param
 import orbax.checkpoint as ocp
 from pathlib import Path
@@ -77,6 +77,8 @@ class Network(nnx.Module, Generic[ModelT]):
         self,
         file: str | Path,
         input_shapes: list[tuple[int | str, ...]],
+        input_names: Sequence[str] = ("obs",),
+        output_names: Sequence[str] = ("actions",),
     ) -> None:
         """Export this network with JAX-style input shape specifications.
 
@@ -91,7 +93,21 @@ class Network(nnx.Module, Generic[ModelT]):
         out_file.parent.mkdir(parents=True, exist_ok=True)
         self.model.eval()
         try:
-            onnx.save(to_onnx(self, input_shapes), out_file)
+            model = to_onnx(self, input_shapes)
+            input_renames = {
+                value.name: name for value, name in zip(model.graph.input, input_names)
+            }
+            output_renames = {
+                value.name: name for value, name in zip(model.graph.output, output_names)
+            }
+            for node in model.graph.node:
+                node.input[:] = [input_renames.get(x, x) for x in node.input]
+                node.output[:] = [output_renames.get(x, x) for x in node.output]
+            for value, name in zip(model.graph.input, input_names):
+                value.name = name
+            for value, name in zip(model.graph.output, output_names):
+                value.name = name
+            onnx.save(model, out_file)
         finally:
             self.model.train()
 
