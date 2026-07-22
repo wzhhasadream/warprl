@@ -6,7 +6,7 @@ import torch
 from gymnasium.vector import VectorEnv
 from gymnasium.vector.utils import batch_space
 from .types import F32NDArray, Tensor
-
+from gymnasium.core import RenderFrame
 G1_29DOF_ENV_ID = "Unitree-G1-29dof-Velocity"
 
 G1_SAC_REWARD_OVERRIDES = {
@@ -253,15 +253,13 @@ class IsaacLabVectorEnv(
         self.envs.close(**kwargs)
         self.simulation_app.close()
 
-    def render(self) -> np.ndarray | None:
+    def render(self) -> list[RenderFrame] | None:
         if self.render_mode != "rgb_array":
             return None
 
         image = self.envs.render()
-        if image is None:
-            return None
 
-        return np.asarray(recursive_to_numpy(image))[None]
+        return [recursive_to_numpy(image)]
 
 
 def make_isaaclab_env(

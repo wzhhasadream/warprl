@@ -302,6 +302,8 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
             self._env.close()
 
     def render(self) -> list[RenderFrame] | None:
+        if self.render_mode != "rgb_array":
+            return None
         image = self._env.render()
         return None if image is None else [image]
 
