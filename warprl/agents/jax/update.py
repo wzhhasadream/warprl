@@ -225,6 +225,7 @@ def make_update_warpsac(config: WarpSACConfig):
         alpha: Network[Alpha],
         target_critic: Network[FlashSACDoubleCritic],
         reward_normalizer: RewardNormalizer | None,
+        critic_grad_updates: jax.Array,
         key: jax.Array,
         big_batch: Batch,
     ):
@@ -246,11 +247,12 @@ def make_update_warpsac(config: WarpSACConfig):
                 critic,
                 actor,
                 alpha,
-                target_critic
+                target_critic,
+                critic_grad_updates,
             ) = carry
             policy_key, critic_key = jax.random.split(key, 2)
             alpha_value = alpha()
-            do_policy_update = (critic.grad_updates % config.policy_frequency == 0)
+            do_policy_update = critic_grad_updates % config.policy_frequency == 0
             policy_info = nnx.cond(
                 do_policy_update,
                 lambda critic, actor, alpha: update_policy(
@@ -280,8 +282,9 @@ def make_update_warpsac(config: WarpSACConfig):
                 sub_batch,
                 critic_key,
             )
+            next_critic_grad_updates = critic_grad_updates + 1
             nnx.cond(
-                critic.grad_updates % config.target_frequency == 0,
+                next_critic_grad_updates % config.target_frequency == 0,
                 lambda target_critic: target_critic.soft_update(),
                 lambda target_critic: None,
                 target_critic,
@@ -296,7 +299,8 @@ def make_update_warpsac(config: WarpSACConfig):
                 critic,
                 actor,
                 alpha,
-                target_critic
+                target_critic,
+                next_critic_grad_updates,
             )
             return next_carry, info
 
@@ -304,13 +308,15 @@ def make_update_warpsac(config: WarpSACConfig):
             critic,
             actor,
             alpha,
-            target_critic
+            target_critic,
+            critic_grad_updates,
         )
         (
             critic,
             actor,
             alpha,
-            target_critic
+            target_critic,
+            critic_grad_updates,
         ), infos = update_minibatch(init_carry, big_batch, update_keys)
         policy_mask = infos["training/policy_updated"]
         policy_update_count = policy_mask.sum()
@@ -343,6 +349,9 @@ def make_update_warpsac(config: WarpSACConfig):
             "training/alpha_value": alpha(),
             "training/policy_update_count": policy_update_count,
         }
-        return info
+        return (
+            critic_grad_updates,
+            info,
+        )
 
     return update_warpsac

@@ -47,10 +47,6 @@ class Network(nn.Module, Generic[ModelT]):
         self.scheduler = scheduler
         self.grad_scaler = grad_scaler
         self.forward_name = forward_name
-        self.register_buffer(
-            "grad_updates",
-            torch.zeros((), dtype=torch.int64, device=next(self.model.parameters()).device),
-        )
 
         if opt is not None:
             self.opt_step = torch.compile(opt.step, mode=compile_mode)
@@ -82,9 +78,8 @@ class Network(nn.Module, Generic[ModelT]):
         if self.scheduler is not None:
             self.scheduler.step()
 
-        self.grad_updates.add_(1)
 
-
+    @torch.compile(mode=compile_mode)
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         if self.forward_name is None:
             return self.model(*args, **kwargs)
@@ -122,8 +117,7 @@ class Network(nn.Module, Generic[ModelT]):
                 self.grad_scaler.state_dict()
                 if self.grad_scaler is not None
                 else None
-            ),
-            "grad_updates": int(self.grad_updates.item())
+            )
         }
         torch.save(state, out_file)
 
@@ -131,7 +125,6 @@ class Network(nn.Module, Generic[ModelT]):
         device = next(self.model.parameters()).device
         state = torch.load(file, map_location=device)
         self.model.load_state_dict(state["model"])
-        self.grad_updates.fill_(state["grad_updates"])
         
         if self.opt is not None and state["opt"] is not None:
             self.opt.load_state_dict(state["opt"])
