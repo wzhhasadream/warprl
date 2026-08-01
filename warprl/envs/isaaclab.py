@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from gymnasium.vector import VectorEnv
 from gymnasium.vector.utils import batch_space
-from .types import F32NDArray, Tensor
+from .types import F32NDArray, Tensor, NDArray
 from gymnasium.core import RenderFrame
 G1_29DOF_ENV_ID = "Unitree-G1-29dof-Velocity"
 

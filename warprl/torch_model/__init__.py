@@ -8,7 +8,6 @@ from torch.optim.lr_scheduler import LRScheduler
 import math
 from typing import Generic, TypeVar, Any, Sequence
 from pathlib import Path
-from .flashsac import FlashSACActor, FlashSACDoubleCritic
 from torch.amp.grad_scaler import GradScaler
 ModelT = TypeVar("ModelT", bound=nn.Module)
 
@@ -17,8 +16,6 @@ compile_mode = "max-autotune"
 __all__ = [
     "Alpha",
     "CategoricalPolicy",
-    "FlashSACActor",
-    "FlashSACDoubleCritic",
     "Network",
     "QuantilePolicy",
     "RMS",
@@ -65,7 +62,7 @@ class Network(nn.Module, Generic[ModelT]):
         if self.opt is None:
             raise RuntimeError("grad_step requires an optimizer")
 
-        self.opt.zero_grad(set_to_none=True)    # the only one that can't be compile
+        self.opt.zero_grad(set_to_none=True)    
 
         if self.grad_scaler is None:
             loss.backward()

@@ -5,9 +5,116 @@ from typing import Literal
 from flax import nnx
 from flax.typing import Dtype
 
-from .layer import orthogonal, Encoder
-from .policy import SquashedTanhGaussianPolicy
-from .dist_head import CategoricalPolicy, QuantilePolicy
+from ...jax_model.dist_head import CategoricalPolicy, QuantilePolicy
+from ...jax_model.policy import SquashedTanhGaussianPolicy
+
+
+def orthogonal(scale: jax.Array = 1):
+    return nnx.initializers.orthogonal(scale)
+
+
+class FlashSACEmbedder(nnx.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        rngs: nnx.Rngs,
+        use_bias: bool = True,
+        compute_dtype: Dtype = jnp.float32,
+    ):
+        self.norm = nnx.BatchNorm(
+            num_features=input_dim,
+            rngs=rngs,
+            dtype=compute_dtype,
+        )
+        self.w = nnx.Linear(
+            input_dim,
+            hidden_dim,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+            use_bias=use_bias,
+            dtype=compute_dtype,
+        )
+
+    def __call__(self, x: jax.Array, training: bool) -> jax.Array:
+        x = self.norm(x, use_running_average=not training)
+        return self.w(x)
+
+
+class FlashSACBlock(nnx.Module):
+    def __init__(
+        self,
+        hidden_dim: int,
+        rngs: nnx.Rngs,
+        expansion: int = 4,
+        use_bias: bool = True,
+        compute_dtype: Dtype = jnp.float32,
+    ):
+        self.w1 = nnx.Linear(
+            hidden_dim,
+            hidden_dim * expansion,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+            use_bias=use_bias,
+            dtype=compute_dtype,
+        )
+        self.w2 = nnx.Linear(
+            hidden_dim * expansion,
+            hidden_dim,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+            use_bias=use_bias,
+            dtype=compute_dtype,
+        )
+        self.norm1 = nnx.BatchNorm(
+            num_features=hidden_dim * expansion,
+            rngs=rngs,
+            dtype=compute_dtype,
+        )
+        self.norm2 = nnx.BatchNorm(
+            num_features=hidden_dim,
+            rngs=rngs,
+            dtype=compute_dtype,
+        )
+
+    def __call__(self, x: jax.Array, training: bool) -> jax.Array:
+        residual = x
+        x = self.w1(x)
+        x = self.norm1(x, use_running_average=not training)
+        x = nnx.relu(x)
+        x = self.w2(x)
+        x = self.norm2(x, use_running_average=not training)
+        return residual + nnx.relu(x)
+
+
+class Encoder(nnx.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        num_blocks: int,
+        hidden_dim: int,
+        rngs: nnx.Rngs,
+        use_bias: bool = True,
+        compute_type: Dtype = jnp.float32,
+    ):
+        self.embed = FlashSACEmbedder(
+            input_dim,
+            hidden_dim,
+            rngs,
+            use_bias,
+            compute_type,
+        )
+        self.blocks = [
+            FlashSACBlock(hidden_dim, rngs, 4, use_bias, compute_type)
+            for _ in range(num_blocks)
+        ]
+        self.rms = nnx.RMSNorm(hidden_dim, rngs=rngs, dtype=compute_type)
+
+    def __call__(self, x: jax.Array, training: bool) -> jax.Array:
+        x = self.embed(x, training=training)
+        for block in self.blocks:
+            x = block(x, training=training)
+        return self.rms(x)
 
 
 def _flattened_dim(observation_dim: int | tuple[int, ...]) -> int:

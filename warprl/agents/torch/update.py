@@ -8,12 +8,11 @@ from ...buffers import Batch
 from ...torch_model import (
     Alpha,
     CategoricalPolicy,
-    FlashSACActor,
-    FlashSACDoubleCritic,
     Network,
     QuantilePolicy,
     RewardNormalizer,
 )
+from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
 from ...utils import select_actor_observations
 import torch.utils._pytree as pytree
 
@@ -49,7 +48,8 @@ class WarpSACConfig(Protocol):
     use_bias: bool
     dist_type: Literal["quantile", "ce", "scalar"]
     q_agg: Literal["mean", "min"]
-    normalize_parameters: bool
+    actor_normalize_parameters: bool
+    critic_normalize_parameters: bool 
     normalize_rewards: bool
     asymmetric_obs: bool
 
@@ -166,7 +166,7 @@ def update_critic(
 
     critic.grad_step(loss)
     info = pytree.tree_map(lambda x: x.detach().clone(), info)
-    if config.normalize_parameters:
+    if config.critic_normalize_parameters:
         critic.project_param()
 
     return info
@@ -235,7 +235,7 @@ def update_policy(
     actor.grad_step(loss)
     critic.model.requires_grad_(True)
     actor_info = pytree.tree_map(lambda x : x.clone(), actor_info)
-    if config.normalize_parameters:
+    if config.actor_normalize_parameters:
         actor.project_param()
     loss, alpha_info = alpha_loss(alpha, actor_info["training/entropy"], config)
     alpha.grad_step(loss)

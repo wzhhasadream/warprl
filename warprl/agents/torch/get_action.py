@@ -1,4 +1,5 @@
-from ...torch_model import FlashSACActor, RewardNormalizer
+from ...torch_model import RewardNormalizer
+from .warpsac_network import FlashSACActor
 import torch
 from ...utils import select_actor_observations
 from .zeta_dist import sample_truncated_zeta
@@ -51,4 +52,3 @@ def update_reward_normalizer(
 ) -> None:
     if reward_normalizer is not None:
         reward_normalizer.update(rewards, terminations.bool() | truncations.bool())
-

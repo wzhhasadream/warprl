@@ -6,7 +6,8 @@ import numpy as np
 from optax import adam, cosine_decay_schedule
 from ...buffers import Transition
 from ...buffers.jax_buffer import JaxBuffer
-from ...jax_model import Alpha, Network, RewardNormalizer, FlashSACActor, FlashSACDoubleCritic
+from ...jax_model import Alpha, Network, RewardNormalizer
+from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
 from gymnasium.vector import VectorEnv
 from .get_action import (
     get_eval_action,
@@ -182,8 +183,9 @@ class WarpSACAgent:
                 wrt=nnx.Param,
             ),
         )
-        if self.cfg.normalize_parameters:
+        if self.cfg.actor_normalize_parameters:
             self.actor.project_param()
+        if self.cfg.critic_normalize_parameters:    
             self.critic.project_param()
         self.target_critic = Network(
             deepcopy(self.critic.model),
@@ -192,7 +194,7 @@ class WarpSACAgent:
             tau=self.cfg.tau,
         )
         self.reward_normalizer = (
-            Network(RewardNormalizer(self.cfg.num_envs, self.cfg.gamma), None)
+            Network(RewardNormalizer(self.cfg.num_envs, self.cfg.gamma))
             if self.cfg.normalize_rewards
             else None
         )

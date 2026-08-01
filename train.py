@@ -14,11 +14,11 @@ import dataclasses
 import tqdm
 @dataclasses.dataclass
 class Args:
-    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'holosoma', 'sim2real'] = "auto"
+    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'sim2real'] = "auto"
 
-    env_id: str = "Unitree-G1-Flat"
+    env_id: str = "humanoid-run"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab', 'holosoma'] = 'mjlab'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'dmc'
 
     seed: int = 1
     backend: Literal["torch", "jax"] = "jax"
@@ -52,7 +52,8 @@ class Args:
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 101
-    normalize_parameters: Literal[True, False] = True
+    actor_normalize_parameters: Literal[True, False] = False
+    critic_normalize_parameters: Literal[True, False] = True
     normalize_rewards: Literal[True, False] = True
     use_bias: Literal[True, False] = False
     record_video: Literal[True, False] = False
@@ -60,7 +61,6 @@ class Args:
     save_onnx: Literal[True, False] = False
     dist_type: Literal["quantile", "ce", "scalar"] = "ce"
     q_agg: Literal["mean", "min"] = "min"
-    log_path: str = "warpsac"
     action_repeat: int = 1
     asymmetric_obs: bool = dataclasses.field(init=False, default=False)
     target_entropy: float = dataclasses.field(init=False, default=0.0)
@@ -105,7 +105,7 @@ def main():
         from warprl.agents.jax import WarpSACAgent
     agent = WarpSACAgent(train_envs, args)
     wandb.init(
-        project=args.log_path,
+        project=args.env_type,
         name=f"{args.env_id}",
         config={**vars(args), **agent.observation_debug_info},
     )

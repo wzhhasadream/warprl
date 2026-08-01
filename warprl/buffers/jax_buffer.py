@@ -299,13 +299,16 @@ class JaxBuffer:
         idx = jnp.arange(self.max_size, dtype=self.size.dtype)
         return idx < self.size
 
-    def _linear_weights(self) -> jax.Array:
-        age = (self.current_time - self.timestamps).astype(jnp.float32)
+    def _linear_weights_for_timestamps(self, timestamps: jax.Array) -> jax.Array:
+        age = (self.current_time - timestamps).astype(jnp.float32)
         decay = jnp.asarray(max(self.abs_linear_decay_step, 1), dtype=jnp.float32)
         min_weight = jnp.asarray(self.min_weight, dtype=jnp.float32)
         if self.linear_decay_step > 0:
             return jnp.maximum(min_weight, 1.0 - age / decay)
         return jnp.minimum(1.0, min_weight + age / decay)
+
+    def _linear_weights(self) -> jax.Array:
+        return self._linear_weights_for_timestamps(self.timestamps)
 
     def _weighted_probabilities(self) -> jax.Array:
         valid = self._valid_mask()
@@ -342,7 +345,7 @@ class JaxBuffer:
             logical_midpoints,
         )
 
-        weights = self._linear_weights()[bucket_midpoints]
+        weights = self._linear_weights_for_timestamps(self.timestamps[bucket_midpoints])
         weights = jnp.where(non_empty, weights, 0.0)
         weight_sum = jnp.sum(weights)
         fallback = non_empty.astype(jnp.float32) / jnp.maximum(jnp.sum(non_empty), 1)

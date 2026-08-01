@@ -88,14 +88,12 @@ def squash_tanh_action(pre_action: jax.Array, pre_log_prob: jax.Array, action_lo
     logdet_tanh = jnp.sum(
         2.0 * (jnp.log(2.0) - pre_action - jax.nn.softplus(-2.0 * pre_action)),
         axis=-1,
+        keepdims=True,
     )
     log_scale = jnp.log(jnp.abs(scale))
-    if jnp.ndim(log_scale) == 0:
-        logdet_affine = pre_action.shape[-1] * log_scale
-    else:
-        logdet_affine = jnp.sum(log_scale, axis=-1)
-    log_prob = pre_log_prob - logdet_tanh - logdet_affine
-    return action, _column_log_prob(log_prob)
+    logdet_affine = jnp.sum(log_scale)
+    log_prob = _column_log_prob(pre_log_prob) - logdet_tanh - logdet_affine
+    return action, log_prob
 
 
 def diagonal_gaussian_kl(mu_c: jax.Array, std_c: jax.Array, mu_o: jax.Array, std_o: jax.Array) -> jax.Array:
@@ -265,36 +263,168 @@ class TanhDeterministicPolicy(_BoundedActionPolicy):
         return self.mean_action(pre_tanh)
 
 
-class MultivariateBetaPolicy(_BoundedActionPolicy):
-    """Independent Beta distribution per action dimension, mapped to [low, high]."""
 
-    def __init__(
-        self,
-        action_low: jax.Array,
-        action_high: jax.Array,
-        epsilon: float = 1e-4,
-    ):
+class CoupledFlowPolicy(_BoundedActionPolicy):
+    def __init__(self,
+                 action_low: jax.Array,
+                 action_high: jax.Array,
+                 action_dim: int,
+                 num_ode: int,
+                 mask_key: jax.Array | None = None
+                 ):
         super().__init__(action_low, action_high)
-        self.epsilon = epsilon
+        self.latent_dim = max(action_dim, num_ode)
+        self.action_dim = action_dim
+        self.num_ode = num_ode
 
-    def dist(self, alpha: jax.Array, beta: jax.Array) -> Any:
-        alpha = jax.nn.softplus(alpha) + self.epsilon
-        beta = jax.nn.softplus(beta) + self.epsilon
+        self._perm = nnx.Variable(jax.random.permutation(
+            jax.random.PRNGKey(0), self.latent_dim))
 
-        base = tfd.Independent(
-            tfd.Beta(concentration1=alpha, concentration0=beta),
-            reinterpreted_batch_ndims=1,
-        )
-        scale = self.action_scale.value
-        bias = self.action_bias.value
-        bijector = tfb.Chain(
-            [tfb.Shift(shift=bias - scale), tfb.Scale(scale=2.0 * scale)])
-        return tfd.TransformedDistribution(base, bijector)
+        self._inv_perm = nnx.Variable(jnp.argsort(self.perm))
 
-    def sample_and_log_prob(
-        self, alpha: jax.Array, beta: jax.Array, key: jax.Array
+        cond_mask, ode_make = self.make_masks(mask_key)
+        self._cond_mask, self._ode_mask = nnx.Variable(
+            cond_mask), nnx.Variable(ode_make)    # (num_ode, latent_dim)
+
+    @property
+    def cond_mask(self):
+        return self._cond_mask.value
+
+    @property
+    def ode_mask(self):
+        return self._ode_mask.value
+
+    @property
+    def perm(self):
+        return self._perm.value
+
+    @property
+    def inv_perm(self):
+        return self._inv_perm.value
+
+    def make_masks(
+        self,
+        key: jax.Array | None = None
     ) -> tuple[jax.Array, jax.Array]:
-        d = self.dist(alpha, beta)
-        action = d.sample(seed=key)
-        log_prob = _column_log_prob(d.log_prob(action))
+        """Create conditioner and ODE masks from latent dim and ODE count."""
+
+        base = self.latent_dim // self.num_ode
+        remainder = self.latent_dim % self.num_ode
+        split_dim = tuple(base + (1 if i < remainder else 0)
+                          for i in range(self.num_ode))
+        indices = jnp.arange(self.latent_dim)
+        if key is not None:
+            indices = jax.random.permutation(key, indices)
+
+        ode_masks = []
+        cond_masks = []
+        start = 0
+        for width in split_dim:
+            end = start + width
+            ode = jnp.zeros((self.latent_dim,),
+                            dtype=jnp.float32).at[indices[start:end]].set(1.0)
+            ode_masks.append(ode)
+            cond_masks.append(1.0 - ode)
+            start = end
+
+        return jnp.stack(cond_masks, axis=0), jnp.stack(ode_masks, axis=0)
+
+    def encode_low_to_high_batch(self, x: jax.Array) -> jax.Array:
+        """Batch version: x shape (B, m), output z shape (B, dim)."""
+        assert x.shape[-1] == self.action_dim, ""
+        x = jnp.asarray(x)
+        m = x.shape[-1]
+
+        pad_width = ((0, 0), (0, self.latent_dim - m))
+        x_pad = jnp.pad(x, pad_width)
+        z = x_pad[:, self.perm]
+        return z
+
+    def decode_high_to_low_batch(self, z: jax.Array) -> jax.Array:
+        """Batch version: z shape (B, dim), output x shape (B, m)."""
+        assert z.shape[-1] == self.latent_dim, ""
+        z = jnp.asarray(z)
+
+        x_pad = z[:, self.inv_perm]
+        x = x_pad[:, : self.action_dim]
+        return x
+
+    def affine_params(
+        self,
+        raw_alpha: jax.Array,
+        raw_beta: jax.Array
+    ) -> tuple[jax.Array, jax.Array]:
+        """Convert network heads into masked direct affine multipliers.
+
+        Shapes:
+          raw_alpha: (num_ode, batch_size, latent_dim)
+          raw_beta: (num_ode, batch_size, latent_dim)
+
+        Returns:
+          alpha: (batch_size, latent_dim)
+          beta: (batch_size, latent_dim)
+        """
+        alpha = raw_alpha * self.ode_mask[:, None, :]
+        beta = raw_beta * self.ode_mask[:, None, :]
+        return alpha.sum(axis=0), beta.sum(axis=0)
+
+    def flow_step(
+        self,
+        x: jax.Array,
+        alpha: jax.Array,
+        beta: jax.Array,
+        step_size: float = 1
+    ) -> tuple[jax.Array, jax.Array]:
+        """Apply one direct affine CoupledFlow step and return log-det.
+
+        Shapes:
+          x: (batch_size, latent_dim)
+          alpha: (batch_size, latent_dim)
+          beta: (batch_size, latent_dim)
+
+        Returns:
+          next_x: (batch_size, latent_dim)
+          delta_logdet: (batch_size, 1)
+        """
+
+        v = x * alpha + beta
+        x = x + v * step_size
+        delta_logdet = jnp.sum(alpha, axis=-1, keepdims=True) * step_size
+        return x, delta_logdet
+
+    def base_log_prob(self, z: jax.Array) -> jax.Array:
+        """Compute standard normal base log-probability.
+
+        Shapes:
+          z: (batch_size, action_dim)
+
+        Returns:
+          log_prob: (batch_size, 1)
+        """
+        if z.ndim != 2:
+            raise ValueError(
+                f"z must have shape (batch_size, action_dim), got {z.shape}")
+        return -0.5 * jnp.sum(z**2 + jnp.log(2.0 * jnp.pi), axis=-1, keepdims=True)
+
+    def squash_action(
+        self,
+        pre_action: jax.Array,
+        pre_log_prob: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
+        """Squash pre-actions to action bounds with corrected log-prob.
+
+        Shapes:
+          pre_action: (batch_size, action_dim)
+          pre_log_prob: (batch_size, 1)
+
+        Returns:
+          action: (batch_size, action_dim)
+          log_prob: (batch_size, 1)
+        """
+        action, log_prob = squash_tanh_action(
+            pre_action,
+            pre_log_prob,
+            self.action_low.value,
+            self.action_high.value,
+        )
         return action, log_prob

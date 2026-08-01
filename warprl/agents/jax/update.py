@@ -9,7 +9,8 @@ from ...jax_model import (
     CategoricalPolicy, 
     QuantilePolicy, 
     RewardNormalizer,
-    FlashSACActor, FlashSACDoubleCritic)
+)
+from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
 from ...utils import (
     select_actor_observations,
 )
@@ -50,7 +51,8 @@ class WarpSACConfig(Protocol):
     dist_type: Literal["quantile", "ce", "scalar"]
     q_agg: Literal["mean", "min"]
 
-    normalize_parameters: bool
+    actor_normalize_parameters: bool
+    critic_normalize_parameters: bool
     normalize_rewards: bool
     asymmetric_obs: bool
 
@@ -140,7 +142,7 @@ def update_critic(
     (_loss, info), grads = nnx.value_and_grad(
         loss_fn, has_aux=True)(critic.model, target_critic.model)
     critic.grad_step(grads)
-    if config.normalize_parameters:
+    if config.critic_normalize_parameters:
         critic.project_param()
     return info
 
@@ -196,7 +198,7 @@ def update_actor(
         actor_loss_fn, argnums=0, has_aux=True
     )(actor.model, critic.model)
     actor.grad_step(grads)
-    if config.normalize_parameters:
+    if config.actor_normalize_parameters:
         actor.project_param()
     return info
 

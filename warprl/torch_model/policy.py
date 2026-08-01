@@ -1,10 +1,12 @@
 from collections.abc import Sequence
+import math
+from torch.distributions.normal import Normal
+from torch.distributions.normal import Normal
 
 import torch
 from torch import nn
 from torch.distributions import (
     AffineTransform,
-    Beta,
     Categorical,
     Independent,
     Normal,
@@ -111,8 +113,8 @@ def squash_tanh_action(
         logdet_affine = pre_action.shape[-1] * log_scale
     else:
         logdet_affine = log_scale.sum(dim=-1)
-    log_prob = pre_log_prob - logdet_tanh - logdet_affine
-    return action, log_prob.unsqueeze(-1)
+    log_prob = pre_log_prob.reshape(-1, 1) - logdet_tanh.unsqueeze(-1)
+    return action, log_prob - logdet_affine
 
 
 def diagonal_gaussian_kl(
@@ -266,7 +268,29 @@ class GaussianPolicy(nn.Module):
         return action, distribution.log_prob(action).unsqueeze(-1)
 
 
-class SquashedTanhGaussianPolicy(nn.Module):
+class _BoundedActionPolicy(nn.Module):
+    """Shared bounded-action transform with checkpointable action bounds."""
+
+    def __init__(self, action_low: ActionBound, action_high: ActionBound) -> None:
+        super().__init__()
+        action_low_tensor = _as_float_tensor(action_low)
+        action_high_tensor = _as_float_tensor(action_high)
+        action_scale, action_bias = action_scale_bias(
+            action_low_tensor, action_high_tensor
+        )
+        self.register_buffer("action_low", action_low_tensor)
+        self.register_buffer("action_high", action_high_tensor)
+        self.register_buffer("action_scale", action_scale)
+        self.register_buffer("action_bias", action_bias)
+
+    def mean_action(self, pre_tanh: torch.Tensor) -> torch.Tensor:
+        return (
+            torch.tanh(pre_tanh) * self.action_scale.to(pre_tanh)
+            + self.action_bias.to(pre_tanh)
+        )
+
+
+class SquashedTanhGaussianPolicy(_BoundedActionPolicy):
     """Tanh-squashed diagonal Gaussian policy for SAC-style continuous actions."""
 
     def __init__(
@@ -277,14 +301,7 @@ class SquashedTanhGaussianPolicy(nn.Module):
         log_std_max: float = 2.0,
         squash_log_std: bool = True,
     ) -> None:
-        super().__init__()
-        action_low_tensor = _as_float_tensor(action_low)
-        action_high_tensor = _as_float_tensor(action_high)
-        scale, bias = action_scale_bias(action_low_tensor, action_high_tensor)
-        self.register_buffer("action_low", action_low_tensor)
-        self.register_buffer("action_high", action_high_tensor)
-        self.register_buffer("action_scale", scale)
-        self.register_buffer("action_bias", bias)
+        super().__init__(action_low, action_high)
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
         self.squash_log_std = squash_log_std
@@ -314,7 +331,7 @@ class SquashedTanhGaussianPolicy(nn.Module):
     ) -> TransformedDistribution:
         std = self.transform_log_std(log_std).exp()
         scale, bias = self._scale_bias_like(mean)
-        base = Independent(Normal(mean, std), 1)
+        base = Independent[Normal](Normal(mean, std), 1)
         return TransformedDistribution(
             base,
             [TanhTransform(cache_size=1), AffineTransform(loc=bias, scale=scale)],
@@ -330,7 +347,7 @@ class SquashedTanhGaussianPolicy(nn.Module):
         transformed_log_std = self.transform_log_std(log_std)
         std = transformed_log_std.exp()
         pre_tanh = _sample_normal(mean, std, noise)
-        base_log_prob = Independent(Normal(mean, std), 1).log_prob(pre_tanh)
+        base_log_prob = Independent[Normal](Normal(mean, std), 1).log_prob(pre_tanh)
         return squash_tanh_action(
             pre_tanh,
             base_log_prob,
@@ -339,71 +356,187 @@ class SquashedTanhGaussianPolicy(nn.Module):
         )
 
 
-class TanhDeterministicPolicy(nn.Module):
+class TanhDeterministicPolicy(_BoundedActionPolicy):
     """Deterministic tanh policy with arbitrary action bounds."""
 
     def __init__(self, action_low: ActionBound, action_high: ActionBound) -> None:
-        super().__init__()
-        action_low_tensor = _as_float_tensor(action_low)
-        action_high_tensor = _as_float_tensor(action_high)
-        scale, bias = action_scale_bias(action_low_tensor, action_high_tensor)
-        self.register_buffer("action_low", action_low_tensor)
-        self.register_buffer("action_high", action_high_tensor)
-        self.register_buffer("action_scale", scale)
-        self.register_buffer("action_bias", bias)
+        super().__init__(action_low, action_high)
 
     def action(self, pre_tanh: torch.Tensor) -> torch.Tensor:
-        return torch.tanh(pre_tanh) * self.action_scale.to(pre_tanh) + self.action_bias.to(pre_tanh)
+        return self.mean_action(pre_tanh)
 
 
-class MultivariateBetaPolicy(nn.Module):
-    """Independent Beta policy mapped from (0, 1) to arbitrary action bounds."""
+class CoupledFlowPolicy(_BoundedActionPolicy):
+    """Direct affine CoupledFlow transform for continuous actions."""
 
     def __init__(
         self,
         action_low: ActionBound,
         action_high: ActionBound,
-        epsilon: float = 1e-4,
+        action_dim: int,
+        num_ode: int,
+        mask_seed: int | None = None,
     ) -> None:
-        super().__init__()
-        if epsilon <= 0:
-            raise ValueError(f"epsilon must be positive, got {epsilon}")
-        action_low_tensor = _as_float_tensor(action_low)
-        action_high_tensor = _as_float_tensor(action_high)
-        action_scale_bias(action_low_tensor, action_high_tensor)
-        self.register_buffer("action_low", action_low_tensor)
-        self.register_buffer("action_high", action_high_tensor)
-        self.epsilon = epsilon
+        super().__init__(action_low, action_high)
+        if action_dim < 1:
+            raise ValueError(f"action_dim must be positive, got {action_dim}")
+        if num_ode < 1:
+            raise ValueError(f"num_ode must be positive, got {num_ode}")
+        self.latent_dim = max(action_dim, num_ode)
+        self.action_dim = action_dim
+        self.num_ode = num_ode
 
-    def _range_like(self, reference: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        low = self.action_low.to(dtype=reference.dtype)
-        high = self.action_high.to(dtype=reference.dtype)
-        return low, high
+        device = self.action_low.device
+        perm_generator = torch.Generator(device=device).manual_seed(0)
+        perm = torch.randperm(
+            self.latent_dim,
+            generator=perm_generator,
+            device=device,
+        )
+        self.register_buffer("perm", perm)
+        self.register_buffer("inv_perm", torch.argsort(perm))
+        mask_generator = None if mask_seed is None else torch.Generator("cpu").manual_seed(mask_seed)
+        cond_mask, ode_mask = self.make_masks(mask_generator)
+        self.register_buffer("cond_mask", cond_mask)
+        self.register_buffer("ode_mask", ode_mask)
 
-    def _base_dist(self, alpha: torch.Tensor, beta: torch.Tensor) -> Independent:
-        concentration1 = torch.nn.functional.softplus(alpha) + self.epsilon
-        concentration0 = torch.nn.functional.softplus(beta) + self.epsilon
-        return Independent(Beta(concentration1, concentration0), 1)
-
-    def dist(
+    def make_masks(
         self,
+        generator: torch.Generator | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Create conditioner and ODE masks from latent dim and ODE count."""
+
+        base = self.latent_dim // self.num_ode
+        remainder = self.latent_dim % self.num_ode
+        split_dim = tuple(base + (1 if i < remainder else 0)
+                          for i in range(self.num_ode))
+        device = self.action_low.device
+        indices = torch.arange(self.latent_dim, device=device)
+        if generator is not None:
+            indices = torch.randperm(
+                self.latent_dim,
+                generator=generator,
+                device=device,
+            )
+
+        ode_masks = []
+        cond_masks = []
+        start = 0
+        for width in split_dim:
+            end = start + width
+            ode = torch.zeros(
+                self.latent_dim,
+                device=device,
+                dtype=self.action_low.dtype,
+            )
+            ode[indices[start:end]] = 1.0
+            ode_masks.append(ode)
+            cond_masks.append(1.0 - ode)
+            start = end
+
+        return torch.stack(cond_masks, dim=0), torch.stack(ode_masks, dim=0)
+
+    def encode_low_to_high_batch(self, x: torch.Tensor) -> torch.Tensor:
+        """Batch version: x shape (B, m), output z shape (B, dim)."""
+        if x.ndim != 2 or x.shape[-1] != self.action_dim:
+            raise ValueError(
+                f"x must have shape (batch_size, {self.action_dim}), got {tuple(x.shape)}"
+            )
+        x_pad = torch.nn.functional.pad(x, (0, self.latent_dim - self.action_dim))
+        z = x_pad[:, self.perm]
+        return z
+
+    def decode_high_to_low_batch(self, z: torch.Tensor) -> torch.Tensor:
+        """Batch version: z shape (B, dim), output x shape (B, m)."""
+        if z.ndim != 2 or z.shape[-1] != self.latent_dim:
+            raise ValueError(
+                f"z must have shape (batch_size, {self.latent_dim}), got {tuple(z.shape)}"
+            )
+
+        x_pad = z[:, self.inv_perm]
+        x = x_pad[:, : self.action_dim]
+        return x
+
+    def affine_params(
+        self,
+        raw_alpha: torch.Tensor,
+        raw_beta: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Convert network heads into masked direct affine multipliers.
+
+        Shapes:
+          raw_alpha: (num_ode, batch_size, latent_dim)
+          raw_beta: (num_ode, batch_size, latent_dim)
+
+        Returns:
+          alpha: (batch_size, latent_dim)
+          beta: (batch_size, latent_dim)
+        """
+        ode_mask = self.ode_mask.to(raw_alpha)
+        alpha = raw_alpha * ode_mask[:, None, :]
+        beta = raw_beta * ode_mask.to(raw_beta)[:, None, :]
+        return alpha.sum(dim=0), beta.sum(dim=0)
+
+    def flow_step(
+        self,
+        x: torch.Tensor,
         alpha: torch.Tensor,
         beta: torch.Tensor,
-    ) -> TransformedDistribution:
-        low, high = self._range_like(alpha)
-        return TransformedDistribution(
-            self._base_dist(alpha, beta),
-            [AffineTransform(loc=low, scale=high - low)],
+        step_size: float = 1.0,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Apply one direct affine CoupledFlow step and return log-det.
+
+        Shapes:
+          x: (batch_size, latent_dim)
+          alpha: (batch_size, latent_dim)
+          beta: (batch_size, latent_dim)
+
+        Returns:
+          next_x: (batch_size, latent_dim)
+          delta_logdet: (batch_size, 1)
+        """
+
+        v = x * alpha + beta
+        x = x + v * step_size
+        delta_logdet = alpha.sum(dim=-1, keepdim=True) * step_size
+        return x, delta_logdet
+
+    def base_log_prob(self, z: torch.Tensor) -> torch.Tensor:
+        """Compute standard normal base log-probability.
+
+        Shapes:
+          z: (batch_size, action_dim)
+
+        Returns:
+          log_prob: (batch_size, 1)
+        """
+        if z.ndim != 2:
+            raise ValueError(
+                f"z must have shape (batch_size, action_dim), got {z.shape}")
+        return -0.5 * (z.square() + math.log(2.0 * math.pi)).sum(
+            dim=-1,
+            keepdim=True,
         )
 
-    def sample_and_log_prob(
+    def squash_action(
         self,
-        alpha: torch.Tensor,
-        beta: torch.Tensor,
+        pre_action: torch.Tensor,
+        pre_log_prob: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        base = self._base_dist(alpha, beta)
-        raw_action = base.rsample()
-        low, high = self._range_like(raw_action)
-        action = raw_action * (high - low) + low
-        log_prob = base.log_prob(raw_action) - (high - low).log().sum(dim=-1)
-        return action, log_prob.unsqueeze(-1)
+        """Squash pre-actions to action bounds with corrected log-prob.
+
+        Shapes:
+          pre_action: (batch_size, action_dim)
+          pre_log_prob: (batch_size, 1)
+
+        Returns:
+          action: (batch_size, action_dim)
+          log_prob: (batch_size, 1)
+        """
+        action, log_prob = squash_tanh_action(
+            pre_action,
+            pre_log_prob,
+            self.action_low,
+            self.action_high,
+        )
+        return action, log_prob

@@ -1,7 +1,8 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from ...jax_model import RewardNormalizer, FlashSACActor
+from ...jax_model import RewardNormalizer
+from .warpsac_network import FlashSACActor
 from .zeta_dist import sample_truncated_zeta
 from ...utils import select_actor_observations
 

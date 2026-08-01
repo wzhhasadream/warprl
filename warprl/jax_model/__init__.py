@@ -7,7 +7,6 @@ import orbax.checkpoint as ocp
 from pathlib import Path
 from .dist_head import CategoricalPolicy, QuantilePolicy
 from .normalization import RewardNormalizer, RMS
-from .flashsac import FlashSACQNetwork, FlashSACActor, FlashSACDoubleCritic
 
 
 
@@ -30,9 +29,6 @@ class Network(nnx.Module, Generic[ModelT]):
         self.source_model = source_model
         self.forward_name = forward_name
 
-    @property
-    def grad_updates(self) -> jax.Array:
-        return self._grad_updates.value
 
     def grad_step(self, grads: nnx.State):
         if self.opt is not None:

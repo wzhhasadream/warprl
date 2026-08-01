@@ -87,14 +87,6 @@ class AutoResetWrapper(Wrapper):
     return state.replace(data=data, obs=obs)
 
 
-class ActionClip(Wrapper):
-    def __init__(self, env: Wrapper):
-        super().__init__(env)
-
-    @partial(jax.jit, static_argnums=(0,))
-    def step(self, state: State, action: jax.Array) -> State:
-        clipped_action = jnp.clip(action, -1.0, 1.0)
-        return self.env.step(state, clipped_action)
 
 
 class MujocoPlaygroundEnv(VectorEnv[NDArray, NDArray, NDArray]):
@@ -243,7 +235,6 @@ def make_playground_env(
     use_push_randomization: bool = False,
     height: int = 240,
     width: int = 320,
-    clip_action: bool = False,
     action_repeat: int = 1,
     **kwargs: Any,
 ) -> MujocoPlaygroundEnv:
@@ -265,8 +256,6 @@ def make_playground_env(
     if max_episode_steps is not None:
         env = EpisodeWrapper(env, max_episode_steps, action_repeat=action_repeat)
     env = AutoResetWrapper(env)
-    if clip_action:
-        env = ActionClip(env)
 
     # MjxEnv-to-Gymnasium wrapper
     vec_env = MujocoPlaygroundEnv(

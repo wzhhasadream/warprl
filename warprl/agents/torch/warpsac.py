@@ -10,11 +10,10 @@ from ...buffers import Transition
 from ...buffers.torch_buffer import TorchBuffer
 from ...torch_model import (
     Alpha,
-    FlashSACActor,
-    FlashSACDoubleCritic,
     Network,
     RewardNormalizer,
 )
+from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
 from .get_action import (
     get_eval_action,
     get_exploration_action,
@@ -135,8 +134,9 @@ class WarpSACAgent:
                 alpha_optimizer, num_updates, eta_min=self.cfg.end_lr
             ),
         )
-        if self.cfg.normalize_parameters:
+        if self.cfg.actor_normalize_parameters:
             self.actor.project_param()
+        if self.cfg.critic_normalize_parameters:
             self.critic.project_param()
         target_critic_model = deepcopy(critic_model)
         target_critic_model.requires_grad_(False)

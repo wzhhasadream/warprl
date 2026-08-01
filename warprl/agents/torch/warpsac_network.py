@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .layer import (
+from ...torch_model.layer import (
     BatchNorm1d,
     EnsembleBatchNorm1D,
     EnsembleLinear,
@@ -12,8 +12,8 @@ from .layer import (
     Linear,
     RMSNorm,
 )
-from .dist_head import CategoricalPolicy, QuantilePolicy
-from .policy import SquashedTanhGaussianPolicy
+from ...torch_model.dist_head import CategoricalPolicy, QuantilePolicy
+from ...torch_model.policy import SquashedTanhGaussianPolicy
 
 
 def _flattened_dim(observation_dim: int | tuple[int, ...]) -> int:
@@ -275,7 +275,7 @@ class FlashSACActor(nn.Module):
 
     def get_mean_action(self, observations: torch.Tensor) -> torch.Tensor:
         mean, _ = self(observations, training=False)
-        return torch.tanh(mean) * self.policy.action_scale.to(mean) + self.policy.action_bias.to(mean)
+        return self.policy.mean_action(mean)
 
     def get_mean_std(
         self,

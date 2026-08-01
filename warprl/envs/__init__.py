@@ -2,10 +2,10 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.vector import SyncVectorEnv, VectorEnv, AsyncVectorEnv
 from gymnasium.wrappers import RescaleAction, TimeLimit
-
+from .types import Tensor
 
 CPU_SIM = ("mujoco", "dmc", "myosuite", "humanoid_bench")
-GPU_SIM = ("playground", "isaaclab", "maniskill", "mjlab", "holosoma")
+GPU_SIM = ("playground", "isaaclab", "maniskill", "mjlab")
 
 
 
@@ -13,25 +13,58 @@ GPU_SIM = ("playground", "isaaclab", "maniskill", "mjlab", "holosoma")
 
 
 
-class RepeatAction(gym.Wrapper):
-    def __init__(self, env: gym.Env, action_repeat=4):
+class RepeatAction(gym.vector.VectorWrapper):
+    """Repeat a batched action until any vector slot finishes."""
+
+    def __init__(self, env: VectorEnv, action_repeat: int = 4) -> None:
         super().__init__(env)
+        if action_repeat < 1:
+            raise ValueError(f"action_repeat must be positive, got {action_repeat}")
         self._action_repeat = action_repeat
 
-    def step(self, action: np.ndarray):
-        total_reward = 0.0
-        terminated = False
-        truncated = False
+    def step(self, action: Tensor):
+        total_reward = np.zeros(self.num_envs, dtype=np.float32)
+        terminated = np.zeros(self.num_envs, dtype=bool)
+        truncated = np.zeros(self.num_envs, dtype=bool)
         combined_info = {}
 
         for _ in range(self._action_repeat):
-            obs, reward, terminated, truncated, info = self.env.step(action)
-            total_reward += float(reward)
+            obs, reward, step_terminated, step_truncated, info = self.env.step(action)
+            total_reward += reward
+            terminated |= step_terminated
+            truncated |= step_truncated
             combined_info.update(info)
-            if terminated or truncated:
+            if np.any(terminated | truncated):
                 break
 
         return obs, total_reward, terminated, truncated, combined_info
+
+
+class ActionClip(gym.vector.VectorWrapper):
+    """Clip batched actions to the vector environment's action bounds."""
+
+    def __init__(self, env: VectorEnv) -> None:
+        super().__init__(env)
+
+    def step(self, action: Tensor):
+        clipped_action = action.clip(
+            self.single_action_space.low,
+            self.single_action_space.high,
+        )
+        return self.env.step(clipped_action)
+
+
+def _wrap_vector_env(
+    env: VectorEnv,
+    *,
+    action_repeat: int,
+    clip_action: bool,
+) -> VectorEnv:
+    if clip_action:
+        env = ActionClip(env)
+    if action_repeat > 1:
+        env = RepeatAction(env, action_repeat)
+    return env
 
 
 def create_envs(
@@ -44,7 +77,7 @@ def create_envs(
     rescale_action: bool = True,
     action_repeat: int = 1,
     max_episode_steps: int = 1000,
-    clip_action: bool = False,
+    clip_action: bool = True,
     render_mode: str | None = None,
 ) -> tuple[VectorEnv, VectorEnv, VectorEnv]:
 
@@ -54,10 +87,8 @@ def create_envs(
             env_name=env_name,
             seed=seed,
             num_envs=num_train_envs,
-            action_repeat=action_repeat,
             rescale_action=rescale_action,
             max_episode_steps=max_episode_steps,
-            clip_action=clip_action,
             render_mode=None,
         )
         eval_env = create_vec_env(
@@ -65,10 +96,8 @@ def create_envs(
             env_name=env_name,
             seed=seed,
             num_envs=num_eval_envs,
-            action_repeat=action_repeat,
             rescale_action=rescale_action,
             max_episode_steps=max_episode_steps,
-            clip_action=clip_action,
             render_mode=None,
         )
         record_env = create_vec_env(
@@ -76,14 +105,11 @@ def create_envs(
             env_name=env_name,
             seed=seed,
             num_envs=num_record_envs,
-            action_repeat=action_repeat,
             rescale_action=rescale_action,
             max_episode_steps=max_episode_steps,
-            clip_action=clip_action,
             render_mode=render_mode,
         )
 
-        return train_env, eval_env, record_env
 
     elif env_type in GPU_SIM:
         if env_type == "playground":
@@ -93,25 +119,21 @@ def create_envs(
                 seed=seed, 
                 num_envs=num_train_envs,
                 max_episode_steps=max_episode_steps,
-                clip_action=clip_action,
                 action_repeat=action_repeat)
             eval_env = make_playground_env(
                 env_name=env_name, 
                 seed=seed, 
                 num_envs=num_eval_envs,
                 max_episode_steps=max_episode_steps,
-                clip_action=clip_action,
                 action_repeat=action_repeat)
             record_env = make_playground_env(
                 env_name=env_name,
                 seed=seed,
                 num_envs=num_record_envs,
                 max_episode_steps=max_episode_steps,
-                clip_action=clip_action,
                 action_repeat=action_repeat)
             
-            return train_env, eval_env, record_env
-        if env_type == "isaaclab":
+        elif env_type == "isaaclab":
             from .isaaclab import make_isaaclab_env
             train_env = make_isaaclab_env(
                 env_name=env_name, 
@@ -122,23 +144,8 @@ def create_envs(
             )
             eval_env = train_env
             record_env = train_env
-            return train_env, eval_env, record_env
 
-        if env_type == "holosoma":
-            from .holosoma import make_holosoma_env
-
-            train_env = make_holosoma_env(
-                task_id=env_name,
-                seed=seed,
-                num_envs=num_train_envs,
-                headless=True,
-                render_mode=render_mode,
-            )
-            eval_env = train_env
-            record_env = train_env
-            return train_env, eval_env, record_env
-
-        if env_type == 'maniskill':
+        elif env_type == 'maniskill':
             from .maniskill import make_maniskill_env
             train_env = make_maniskill_env(
                 env_name=env_name, 
@@ -153,10 +160,9 @@ def create_envs(
                 env_name=env_name, 
                 render_mode=render_mode, 
                 num_envs=num_record_envs)
-            return train_env, eval_env, record_env
 
 
-        if env_type == "mjlab":
+        elif env_type == "mjlab":
             from .mjlab import make_mjlab_env
 
             train_env = make_mjlab_env(
@@ -178,10 +184,38 @@ def create_envs(
                 render_mode=render_mode
             )
 
-            return train_env, eval_env, record_env
+        else:
+            raise ValueError(f"Unsupported env_type: {env_type}")
 
-        raise ValueError(f"Unsupported env_type: {env_type}")
+    # Mujoco Playground applies action_repeat in its EpisodeWrapper.
+    external_action_repeat = 1 if env_type == "playground" else action_repeat
+    shared_eval = eval_env is train_env
+    shared_record = record_env is train_env
+    train_env = _wrap_vector_env(
+        train_env,
+        action_repeat=external_action_repeat,
+        clip_action=clip_action,
+    )
+    eval_env = (
+        train_env
+        if shared_eval
+        else _wrap_vector_env(
+            eval_env,
+            action_repeat=external_action_repeat,
+            clip_action=clip_action,
+        )
+    )
+    record_env = (
+        train_env
+        if shared_record
+        else _wrap_vector_env(
+            record_env,
+            action_repeat=external_action_repeat,
+            clip_action=clip_action,
+        )
+    )
 
+    return train_env, eval_env, record_env
 
 
 def create_vec_env(
@@ -190,9 +224,7 @@ def create_vec_env(
     num_envs: int,
     seed: int,
     rescale_action: bool = True,
-    action_repeat: int = 1,
     max_episode_steps: int = 1000,
-    clip_action: bool = False,
     render_mode: str | None = None,
 ) -> VectorEnv:
 
@@ -201,9 +233,7 @@ def create_vec_env(
         env_name: str,
         seed: int,
         rescale_action: bool,
-        action_repeat: int,
         max_episode_steps: int,
-        clip_action: bool,
         render_mode: str | None,
     ) -> gym.Env:
 
@@ -228,11 +258,6 @@ def create_vec_env(
         # limit max_steps before action_repeat.
         env = TimeLimit(env, max_episode_steps)
 
-        if action_repeat > 1:
-            env = RepeatAction(env, action_repeat)
-
-        if clip_action:
-            env = gym.wrappers.ClipAction(env)
 
         env.observation_space.seed(seed)
         env.action_space.seed(seed)
@@ -245,9 +270,7 @@ def create_vec_env(
                 env_name=env_name,
                 seed=seed + i,
                 rescale_action=rescale_action,
-                action_repeat=action_repeat,
                 max_episode_steps=max_episode_steps,
-                clip_action=clip_action,
                 render_mode=render_mode,
             )
         )
