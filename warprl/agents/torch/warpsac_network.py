@@ -296,7 +296,7 @@ class FlashSACQNetwork(nn.Module):
         hidden_dim: int = 256,
         num_blocks: int = 2,
         num_head: int = 1,
-        head_type: str = "scalar",
+        dist_type: Literal["scalar", "quantile", "ce"] = "scalar",
         v_min: float = -5.0,
         v_max: float = 5.0,
         use_bias: bool = True,
@@ -316,10 +316,8 @@ class FlashSACQNetwork(nn.Module):
         self.out = Linear(hidden_dim, num_head)
         self.dist = {
             "quantile": QuantilePolicy(num_head),
-            "quantile_loss": QuantilePolicy(num_head),
-            "categorical": CategoricalPolicy(num_head, v_min, v_max),
-            "ce_loss": CategoricalPolicy(num_head, v_min, v_max),
-        }.get(head_type)
+            "ce": CategoricalPolicy(num_head, v_min, v_max),
+        }.get(dist_type)
 
     def forward(
         self,
