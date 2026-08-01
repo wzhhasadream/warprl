@@ -331,7 +331,7 @@ class SquashedTanhGaussianPolicy(_BoundedActionPolicy):
     ) -> TransformedDistribution:
         std = self.transform_log_std(log_std).exp()
         scale, bias = self._scale_bias_like(mean)
-        base = Independent[Normal](Normal(mean, std), 1)
+        base = Independent(Normal(mean, std), 1)
         return TransformedDistribution(
             base,
             [TanhTransform(cache_size=1), AffineTransform(loc=bias, scale=scale)],
@@ -347,7 +347,7 @@ class SquashedTanhGaussianPolicy(_BoundedActionPolicy):
         transformed_log_std = self.transform_log_std(log_std)
         std = transformed_log_std.exp()
         pre_tanh = _sample_normal(mean, std, noise)
-        base_log_prob = Independent[Normal](Normal(mean, std), 1).log_prob(pre_tanh)
+        base_log_prob = Independent(Normal(mean, std), 1).log_prob(pre_tanh)
         return squash_tanh_action(
             pre_tanh,
             base_log_prob,
