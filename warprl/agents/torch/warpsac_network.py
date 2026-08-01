@@ -241,8 +241,8 @@ class FlashSACActor(nn.Module):
             hidden_dim,
             use_bias=use_bias,
         )
-        self.fc_mean = Linear(hidden_dim, action_dim, bias=use_bias)
-        self.fc_log_std = Linear(hidden_dim, action_dim, bias=use_bias)
+        self.fc_mean = Linear(hidden_dim, action_dim)
+        self.fc_log_std = Linear(hidden_dim, action_dim)
         self.policy = SquashedTanhGaussianPolicy(
             action_low,
             action_high,
@@ -313,7 +313,7 @@ class FlashSACQNetwork(nn.Module):
             hidden_dim,
             use_bias=use_bias,
         )
-        self.out = Linear(hidden_dim, num_head, bias=use_bias)
+        self.out = Linear(hidden_dim, num_head)
         self.dist = {
             "quantile": QuantilePolicy(num_head),
             "quantile_loss": QuantilePolicy(num_head),
@@ -368,7 +368,6 @@ class FlashSACDoubleCritic(nn.Module):
         self.obs_dim = _flattened_dim(obs_dim)
         self.action_dim = action_dim
         self.num_q = num_q
-        self.num_qs = num_q
         self.num_head = num_head
         self.encoder = EnsembleEncoder(
             num_q,
@@ -377,7 +376,7 @@ class FlashSACDoubleCritic(nn.Module):
             hidden_dim,
             use_bias=use_bias,
         )
-        self.out = EnsembleLinear(num_q, hidden_dim, num_head, bias=use_bias)
+        self.out = EnsembleLinear(num_q, hidden_dim, num_head)
         self.dist = {
             "quantile": QuantilePolicy(num_head),
             "ce": CategoricalPolicy(num_head, v_min, v_max),
@@ -390,7 +389,7 @@ class FlashSACDoubleCritic(nn.Module):
         training: bool | None = None,
     ) -> torch.Tensor:
         x = torch.concat([observations, actions], dim=-1)
-        x = torch.broadcast_to(x[None, ...], (self.num_qs, *x.shape))
+        x = torch.broadcast_to(x[None, ...], (self.num_q, *x.shape))
         return self.out(self.encoder(x, training=training))
 
     def q_values(
