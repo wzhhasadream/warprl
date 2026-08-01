@@ -395,7 +395,7 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         )
         self.register_buffer("perm", perm)
         self.register_buffer("inv_perm", torch.argsort(perm))
-        mask_generator = None if mask_seed is None else torch.Generator("cpu").manual_seed(mask_seed)
+        mask_generator = None if mask_seed is None else torch.Generator(device).manual_seed(mask_seed)
         cond_mask, ode_mask = self.make_masks(mask_generator)
         self.register_buffer("cond_mask", cond_mask)
         self.register_buffer("ode_mask", ode_mask)
