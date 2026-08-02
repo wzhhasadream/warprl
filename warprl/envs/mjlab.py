@@ -165,8 +165,10 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
         self.observation_space = batch_space(
             self.single_observation_space, self.num_envs
         )
+        # NOTE: The Gym action space is unbounded. The policy emits actions in
+        # [-1, 1], which this wrapper forwards to MJLab without rescaling or clipping.
         self.single_action_space = gym.spaces.Box(
-            low=-1.0, high=1.0, shape=self.action_size, dtype=np.float32
+            low=-np.inf, high=np.inf, shape=self.action_size, dtype=np.float32
         )
         self.action_space = batch_space(self.single_action_space, self.num_envs)
         self.metadata = dict(getattr(self._env, "metadata", {}))

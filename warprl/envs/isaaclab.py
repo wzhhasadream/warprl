@@ -7,23 +7,13 @@ from gymnasium.vector import VectorEnv
 from gymnasium.vector.utils import batch_space
 from .types import F32NDArray, Tensor, NDArray
 from gymnasium.core import RenderFrame
-G1_29DOF_ENV_ID = "Unitree-G1-29dof-Velocity"
-
-G1_SAC_REWARD_OVERRIDES = {
-    "track_lin_vel_xy": {"weight": 3.0, "std": 0.25},
-    "track_ang_vel_z": {"weight": 1.0, "std": 0.25},
-    "alive": {"weight": 0.05},
-    "gait": {"weight": 0.25},
-    "feet_clearance": {"weight": 0.5},
-}
 
 # NOTE: There is no way to get the action bounds from the env, so we hardcode them here following FastTD3
-ACTION_BOUNDS = {
+ACTION_SCALE = {
     "Isaac-Repose-Cube-Shadow-Direct-v0": 1.0,
     "Isaac-Repose-Cube-Allegro-Direct-v0": 1.0,
     "Isaac-Velocity-Flat-G1-v0": 1.0,
     "Isaac-Velocity-Rough-G1-v0": 1.0,
-    G1_29DOF_ENV_ID: 1.0,
     "Isaac-Velocity-Flat-H1-v0": 1.0,
     "Isaac-Velocity-Rough-H1-v0": 1.0,
     "Isaac-Lift-Cube-Franka-v0": 3.0,
@@ -35,37 +25,6 @@ ACTION_BOUNDS = {
 }
 
 
-def _register_unitree_rl_lab_tasks(env_name: str) -> None:
-    """Register Unitree RL Lab tasks when the external package is installed."""
-    if env_name in gym.registry or not env_name.startswith("Unitree-"):
-        return
-
-    try:
-        import unitree_rl_lab.tasks  # noqa: F401
-    except ImportError as exc:
-        raise ImportError(
-            f"{env_name!r} requires the unitree_rl_lab package. Install it with "
-            "`./unitree_rl_lab.sh -i` in the IsaacLab conda environment and "
-            "configure UNITREE_MODEL_DIR or UNITREE_ROS_DIR in its asset config."
-        ) from exc
-
-
-def _configure_unitree_g1_sac_env(env_cfg: Any) -> None:
-    """Adapt the upstream PPO-oriented G1 task for off-policy SAC training."""
-    command_cfg = env_cfg.commands.base_velocity
-    command_cfg.ranges.lin_vel_x = tuple(command_cfg.limit_ranges.lin_vel_x)
-    command_cfg.ranges.lin_vel_y = tuple(command_cfg.limit_ranges.lin_vel_y)
-    command_cfg.ranges.ang_vel_z = tuple(command_cfg.limit_ranges.ang_vel_z)
-
-    # A replay buffer should not mix samples from changing command curricula.
-    if getattr(env_cfg, "curriculum", None) is not None:
-        env_cfg.curriculum.lin_vel_cmd_levels = None
-
-    for reward_name, overrides in G1_SAC_REWARD_OVERRIDES.items():
-        reward_cfg = getattr(env_cfg.rewards, reward_name)
-        reward_cfg.weight = overrides["weight"]
-        if "std" in overrides:
-            reward_cfg.params["std"] = overrides["std"]
 
 
 def recursive_to_numpy(
@@ -95,7 +54,7 @@ class IsaacLabVectorEnv(
         num_envs (int): The number of parallel environments. This is only used if the env argument is a string
         device (str):
         seed (int):
-        action_bounds (float):
+        action_scale (float):
         to_numpy (bool): If True, will convert all outputs from jnp.ndarray to np.array.
     """
 
@@ -105,7 +64,7 @@ class IsaacLabVectorEnv(
         num_envs: int,
         seed: int,
         device: str,
-        action_bounds: float,
+        action_scale: float,
         to_numpy: bool = True,
         headless: bool = True,
         render_mode: str | None = None,
@@ -117,7 +76,6 @@ class IsaacLabVectorEnv(
             headless=headless, device=device, enable_cameras=enable_cameras)
         self.simulation_app = app_launcher.app
 
-        _register_unitree_rl_lab_tasks(env_name)
 
         from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
 
@@ -127,8 +85,6 @@ class IsaacLabVectorEnv(
             num_envs=num_envs,
         )
         env_cfg.seed = seed
-        if env_name == G1_29DOF_ENV_ID:
-            _configure_unitree_g1_sac_env(env_cfg)
         if render_mode == "rgb_array":
             env_cfg.viewer.origin_type = "asset_root"
             env_cfg.viewer.asset_name = "robot"
@@ -146,9 +102,9 @@ class IsaacLabVectorEnv(
         self.to_numpy = to_numpy
 
         # Get observation/action spaces.
-        # The base adapter exposes the physical IsaacLab action range. The
-        # factory can wrap it with RescaleAction to expose a normalized policy
-        # interface in [-1, 1].
+        # NOTE: The Gym action space is unbounded. The policy emits normalized
+        # actions in [-1, 1]; step() clips them to this range and scales them
+        # before sending them to IsaacLab.
         raw_observation_space = cast(
             Any, self.envs.unwrapped).single_observation_space
         observation_spaces = getattr(raw_observation_space, "spaces", raw_observation_space)
@@ -170,11 +126,12 @@ class IsaacLabVectorEnv(
         self.observation_space = batch_space(
             self.single_observation_space, self.num_envs)
 
-        self.action_bounds = action_bounds
+        self.action_scale = action_scale
         self.action_size = cast(
             Any, self.envs.unwrapped).single_action_space.shape
+
         self.single_action_space = gym.spaces.Box(
-            low=-1.0 , high=1.0, shape=self.action_size, dtype=np.float32
+            low=-np.inf , high=np.inf, shape=self.action_size, dtype=np.float32
         )
         self.action_space = batch_space(
             self.single_action_space, self.num_envs)
@@ -223,9 +180,9 @@ class IsaacLabVectorEnv(
         else:
             torch_actions = torch.from_numpy(actions).to(self.device)
 
-        if self.action_bounds is not None:
+        if self.action_scale is not None:
             torch_actions = torch.clamp(
-                torch_actions, -1.0, 1.0) * self.action_bounds
+                torch_actions, -1.0, 1.0) * self.action_scale
         obs_dict, rew, terminations, truncations, infos = cast(
             Any, self.envs.step(torch_actions))
         obs = obs_dict["policy"]
@@ -269,16 +226,16 @@ def make_isaaclab_env(
     headless: bool = True,
     render_mode: str | None = None,
 ) -> VectorEnv:
-    if env_name not in ACTION_BOUNDS:
+    if env_name not in ACTION_SCALE:
         print(
             f"Action bounds not defined for {env_name}; using default value 1.0.")
-    action_bounds = ACTION_BOUNDS.get(env_name, 1.0)
+    action_scale = ACTION_SCALE.get(env_name, 1.0)
     env = IsaacLabVectorEnv(
         env_name=env_name,
         num_envs=num_envs,
         seed=seed,
         device="cuda:0" if torch.cuda.is_available() else "cpu",
-        action_bounds=action_bounds,
+        action_scale=action_scale,
         to_numpy=True,
         headless=headless,
         render_mode=render_mode,

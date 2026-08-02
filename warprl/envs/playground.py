@@ -126,7 +126,9 @@ class MujocoPlaygroundEnv(VectorEnv[NDArray, NDArray, NDArray]):
 
         # Get observation/action spaces
         # - Obs range: Unknown (setting to [0, 0] since we only need the shape and dtype)
-        # - Action range: [-1, 1] (https://github.com/google-deepmind/mujoco_playground/issues/19)
+        # NOTE: Mujoco Playground accepts unbounded action inputs. The policy applies
+        # tanh squashing, so actions passed to env.step() are in [-1, 1].
+        # See https://github.com/google-deepmind/mujoco_playground/issues/19
         if isinstance(self.envs.unwrapped.observation_size, dict):
             # Env will treat privileged state as the observation,
             # but will give 'actual' observation size in the info.
@@ -149,7 +151,7 @@ class MujocoPlaygroundEnv(VectorEnv[NDArray, NDArray, NDArray]):
 
         action_size = (self.envs.action_size,)
         self.single_action_space = gym.spaces.Box(
-            low=-1.0, high=1.0, shape=action_size, dtype=np.float32)
+            low=-np.inf, high=np.inf, shape=action_size, dtype=np.float32)
         self.action_space = batch_space(
             self.single_action_space, self.num_envs)
 

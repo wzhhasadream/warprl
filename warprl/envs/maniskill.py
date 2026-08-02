@@ -63,16 +63,11 @@ class ManiSkillVectorEnv(VectorEnv[Array, Array, Array]):
         self.ignore_terminations = ignore_terminations
         self.spec = self.envs.spec
         self.to_numpy = to_numpy
-        
+        # NOTE: The Gym action space preserves the underlying ManiSkill bounds.
+        # The policy emits actions in [-1, 1] and this wrapper forwards them
+        # without rescaling, so the selected control mode must have matching bounds.
         self.single_observation_space = self.envs.get_wrapper_attr("single_observation_space")
-        self.single_observation_space = self.envs.get_wrapper_attr("single_observation_space")
-        base_action_space = self.envs.get_wrapper_attr("single_action_space")
-        self.single_action_space = gym.spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=base_action_space.shape,
-            dtype=np.float32,
-        )
+        self.single_action_space = self.envs.get_wrapper_attr("single_action_space")
         self.action_space = batch_space(self.single_action_space, self.num_envs)
         self.observation_space = self.envs.get_wrapper_attr("observation_space")
         self.metadata = self.envs.metadata
