@@ -228,7 +228,7 @@ def make_isaaclab_env(
 ) -> VectorEnv:
     if env_name not in ACTION_SCALE:
         print(
-            f"Action bounds not defined for {env_name}; using default value 1.0.")
+            f"Action scale not defined for {env_name}; using default value 1.0.")
     action_scale = ACTION_SCALE.get(env_name, 1.0)
     env = IsaacLabVectorEnv(
         env_name=env_name,
