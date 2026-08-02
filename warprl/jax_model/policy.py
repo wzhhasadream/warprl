@@ -263,19 +263,24 @@ class TanhDeterministicPolicy(_BoundedActionPolicy):
         return self.mean_action(pre_tanh)
 
 
-
 class CoupledFlowPolicy(_BoundedActionPolicy):
     def __init__(self,
                  action_low: jax.Array,
                  action_high: jax.Array,
                  action_dim: int,
                  num_ode: int,
-                 mask_key: jax.Array | None = None
+                 mask_key: jax.Array | None = None,
+                 alpha_min: float = -10,
+                 alpha_max: float = 2,
+                 squash_alpha: bool = True
                  ):
         super().__init__(action_low, action_high)
         self.latent_dim = max(action_dim, num_ode)
         self.action_dim = action_dim
         self.num_ode = num_ode
+        self.squash_alpha = squash_alpha
+        self.alpha_min = alpha_min
+        self.alpha_max = alpha_max
 
         self._perm = nnx.Variable(jax.random.permutation(
             jax.random.PRNGKey(0), self.latent_dim))
@@ -366,7 +371,12 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         """
         alpha = raw_alpha * self.ode_mask[:, None, :]
         beta = raw_beta * self.ode_mask[:, None, :]
-        return alpha.sum(axis=0), beta.sum(axis=0)
+        if self.squash_alpha:
+            alpha = squash_log_std_tanh(
+                alpha.sum(axis=0), log_std_min=self.alpha_min, log_std_max=self.alpha_max)
+        else:
+            alpha = alpha.sum(axis=0)
+        return alpha, beta.sum(axis=0)
 
     def flow_step(
         self,
@@ -384,13 +394,12 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
 
         Returns:
           next_x: (batch_size, latent_dim)
-          delta_logdet: (batch_size, 1)
+          delta_logprob: (batch_size, 1)
         """
-
         v = x * alpha + beta
         x = x + v * step_size
-        delta_logdet = jnp.sum(alpha, axis=-1, keepdims=True) * step_size
-        return x, delta_logdet
+        delta_logprob = jnp.sum(alpha, axis=-1, keepdims=True) * step_size
+        return x, delta_logprob
 
     def base_log_prob(self, z: jax.Array) -> jax.Array:
         """Compute standard normal base log-probability.

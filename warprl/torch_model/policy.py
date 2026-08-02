@@ -376,6 +376,9 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         action_dim: int,
         num_ode: int,
         mask_seed: int | None = None,
+        squash_alpha: bool = True,
+        alpha_min: float = -10,
+        alpha_max: float = 2
     ) -> None:
         super().__init__(action_low, action_high)
         if action_dim < 1:
@@ -385,6 +388,9 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         self.latent_dim = max(action_dim, num_ode)
         self.action_dim = action_dim
         self.num_ode = num_ode
+        self.squash_alpha = squash_alpha
+        self.alpha_min = alpha_min
+        self.alpha_max = alpha_max
 
         device = self.action_low.device
         perm_generator = torch.Generator(device=device).manual_seed(0)
@@ -475,7 +481,12 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         ode_mask = self.ode_mask.to(raw_alpha)
         alpha = raw_alpha * ode_mask[:, None, :]
         beta = raw_beta * ode_mask.to(raw_beta)[:, None, :]
-        return alpha.sum(dim=0), beta.sum(dim=0)
+        if self.squash_alpha:
+            alpha = squash_log_std_tanh(
+                alpha.sum(axis=0), log_std_min=self.alpha_min, log_std_max=self.alpha_max)
+        else:
+            alpha = alpha.sum(axis=0)
+        return alpha, beta.sum(axis=0)
 
     def flow_step(
         self,
@@ -493,13 +504,13 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
 
         Returns:
           next_x: (batch_size, latent_dim)
-          delta_logdet: (batch_size, 1)
+          delta_logprob: (batch_size, 1)
         """
 
         v = x * alpha + beta
         x = x + v * step_size
-        delta_logdet = alpha.sum(dim=-1, keepdim=True) * step_size
-        return x, delta_logdet
+        delta_logprob = alpha.sum(dim=-1, keepdim=True) * step_size
+        return x, delta_logprob
 
     def base_log_prob(self, z: torch.Tensor) -> torch.Tensor:
         """Compute standard normal base log-probability.
