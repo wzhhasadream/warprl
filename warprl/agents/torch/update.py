@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as functional
 
 from ...buffers import Batch
-from ...torch_model import (
+from ...model.torch import (
     Alpha,
     CategoricalPolicy,
     Network,

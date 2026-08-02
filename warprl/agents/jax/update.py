@@ -3,7 +3,7 @@ from typing import Literal, Protocol
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from ...jax_model import (
+from ...model.jax import (
     Alpha, 
     Network, 
     CategoricalPolicy, 

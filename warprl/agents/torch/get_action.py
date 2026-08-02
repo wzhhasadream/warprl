@@ -1,4 +1,4 @@
-from ...torch_model import RewardNormalizer
+from ...model.torch import RewardNormalizer
 from .warpsac_network import FlashSACActor
 import torch
 from ...utils import select_actor_observations

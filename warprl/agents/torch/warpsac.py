@@ -8,7 +8,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from ...buffers import Transition
 from ...buffers.torch_buffer import TorchBuffer
-from ...torch_model import (
+from ...model.torch import (
     Alpha,
     Network,
     RewardNormalizer,

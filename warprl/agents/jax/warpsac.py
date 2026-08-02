@@ -6,7 +6,7 @@ import numpy as np
 from optax import adam, cosine_decay_schedule
 from ...buffers import Transition
 from ...buffers.jax_buffer import JaxBuffer
-from ...jax_model import Alpha, Network, RewardNormalizer
+from ...model.jax import Alpha, Network, RewardNormalizer
 from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
 from gymnasium.vector import VectorEnv
 from .get_action import (
