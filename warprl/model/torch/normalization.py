@@ -63,12 +63,10 @@ class RMS(nn.Module):
         self.count.copy_(total_count)
 
     def normalize(self, batch: torch.Tensor, update: bool = True) -> torch.Tensor:
-        batch = torch.as_tensor(
-            batch, dtype=torch.float32, device=self.mean.device
-        )
+        normalized_batch = (batch - self.mean) * torch.rsqrt(self.var + self.epsilon)
         if update:
             self.update(batch)
-        return (batch - self.mean) * torch.rsqrt(self.var + self.epsilon)
+        return normalized_batch
 
 class RewardNormalizer(nn.Module):
     """Reward normalizer based on discounted-return statistics."""

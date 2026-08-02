@@ -47,9 +47,12 @@ class RMS(nnx.Module):
         self.count.value = total_count
 
     def normalize(self, batch: jax.Array, update: bool = True) -> jax.Array:
+
+        normalized_batch = (batch - self.mean.value) / jnp.sqrt(self.var.value + self.epsilon)
+        
         if update:
             self.update(batch)
-        return (batch - self.mean.value) / jnp.sqrt(self.var.value + self.epsilon)
+        return normalized_batch
 
 
 class RewardNormalizer(nnx.Module):
