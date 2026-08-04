@@ -7,7 +7,7 @@ import orbax.checkpoint as ocp
 from pathlib import Path
 from .dist_head import CategoricalPolicy, QuantilePolicy
 from .normalization import RewardNormalizer, RMS
-
+from .layer import MLP
 
 
 ModelT = TypeVar("ModelT", bound=nnx.Module)

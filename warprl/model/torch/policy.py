@@ -376,7 +376,7 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         action_dim: int,
         num_ode: int,
         mask_seed: int | None = None,
-        squash_alpha: bool = True,
+        squash_alpha: bool = False,
         alpha_min: float = -10,
         alpha_max: float = 2
     ) -> None:

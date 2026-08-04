@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, TypeAlias
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -6,6 +6,10 @@ from tensorflow_probability.substrates import jax as tfp
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
+
+CategoricalDistribution: TypeAlias = tfd.Categorical
+DiagonalGaussianDistribution: TypeAlias = tfd.MultivariateNormalDiag
+SquashedGaussianDistribution: TypeAlias = tfd.TransformedDistribution
 
 
 def _as_float_array(x: jax.Array) -> jax.Array:
@@ -137,7 +141,7 @@ class MaskedCategoricalPolicy(nnx.Module):
         self,
         logits: jax.Array,
         legal_action_mask: Optional[jax.Array] = None,
-    ) -> Any:
+    ) -> CategoricalDistribution:
         masked_logits = mask_logits(
             logits, legal_action_mask, invalid_logit=self.invalid_logit
         )
@@ -174,7 +178,7 @@ class GaussianPolicy(nnx.Module):
         self.log_std_max = log_std_max
         self.squash_log_std = squash_log_std
 
-    def dist(self, mean: jax.Array, log_std: jax.Array) -> Any:
+    def dist(self, mean: jax.Array, log_std: jax.Array) -> DiagonalGaussianDistribution:
         if self.squash_log_std:
             log_std = self.transform_log_std(log_std)
         std = jnp.exp(log_std)
@@ -188,7 +192,7 @@ class GaussianPolicy(nnx.Module):
         log_prob = _column_log_prob(d.log_prob(action))
         return action, log_prob
 
-    def transform_log_std(self, log_std: jax.Array):
+    def transform_log_std(self, log_std: jax.Array) -> jax.Array:
         if self.squash_log_std:
             return squash_log_std_tanh(
                 log_std, log_std_min=self.log_std_min, log_std_max=self.log_std_max)
@@ -225,7 +229,7 @@ class SquashedTanhGaussianPolicy(_BoundedActionPolicy):
         self.log_std_max = log_std_max
         self.squash_log_std = squash_log_std
 
-    def dist(self, mean: jax.Array, log_std: jax.Array) -> Any:
+    def dist(self, mean: jax.Array, log_std: jax.Array) -> SquashedGaussianDistribution:
         if self.squash_log_std:
             log_std = self.transform_log_std(log_std)
         std = jnp.exp(log_std)
@@ -249,7 +253,7 @@ class SquashedTanhGaussianPolicy(_BoundedActionPolicy):
         log_prob = _column_log_prob(d.log_prob(action))
         return action, log_prob
 
-    def transform_log_std(self, log_std: jax.Array):
+    def transform_log_std(self, log_std: jax.Array) -> jax.Array:
         if self.squash_log_std:
             return squash_log_std_tanh(
                 log_std, log_std_min=self.log_std_min, log_std_max=self.log_std_max)
@@ -272,7 +276,7 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
                  mask_key: jax.Array | None = None,
                  alpha_min: float = -10,
                  alpha_max: float = 2,
-                 squash_alpha: bool = True
+                 squash_alpha: bool = False
                  ):
         super().__init__(action_low, action_high)
         self.latent_dim = max(action_dim, num_ode)

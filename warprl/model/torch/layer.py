@@ -1,5 +1,8 @@
+from collections.abc import Callable, Sequence
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class Linear(nn.Linear):
@@ -8,6 +11,8 @@ class Linear(nn.Linear):
         if bias:
             nn.init.zeros_(self.bias)
         nn.init.orthogonal_(self.weight, gain=1)
+
+
 
 
 class BatchNorm1d(nn.BatchNorm1d):
@@ -98,7 +103,37 @@ class RMSNorm(nn.Module):
         return (output * self.weight).to(x)
 
 
+class MLP(nn.Module):
+    def __init__(
+        self,
+        in_dim: int,
+        hidden_dims: Sequence[int],
+        layer_norm: bool = True,
+        activation_fn: Callable[[torch.Tensor], torch.Tensor] = F.relu,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        dims = [in_dim] + list(hidden_dims)
+        self.layers = nn.ModuleList(
+            [
+                Linear(dims[i], dims[i + 1], bias=bias)
+                for i in range(len(hidden_dims))
+            ]
+        )
+        self.layer_norm = layer_norm
+        self.activation_fn = activation_fn
+        if layer_norm:
+            self.norms = nn.ModuleList(
+                [nn.LayerNorm(dims[i + 1]) for i in range(len(hidden_dims))]
+            )
 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if self.layer_norm:
+                x = self.norms[i](x)
+            x = self.activation_fn(x)
+        return x
 
 
 
@@ -429,3 +464,41 @@ class EnsembleRMSNorm(nn.Module):
             )
             output = output * self.weight.view(weight_shape)
         return output
+
+
+class EnsembleMLP(nn.Module):
+    def __init__(
+        self,
+        num_ensemble: int,
+        in_dim: int,
+        hidden_dims: Sequence[int],
+        layer_norm: bool = True,
+        activation_fn: Callable[[torch.Tensor], torch.Tensor] = F.relu,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        dims = [in_dim] + list(hidden_dims)
+        self.num_ensemble = num_ensemble
+        self.layers = nn.ModuleList(
+            [
+                EnsembleLinear(num_ensemble, dims[i], dims[i + 1], bias=bias)
+                for i in range(len(hidden_dims))
+            ]
+        )
+        self.layer_norm = layer_norm
+        self.activation_fn = activation_fn
+        if layer_norm:
+            self.norms = nn.ModuleList(
+                [
+                    EnsembleLayerNorm(num_ensemble, dims[i + 1])
+                    for i in range(len(hidden_dims))
+                ]
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if self.layer_norm:
+                x = self.norms[i](x)
+            x = self.activation_fn(x)
+        return x
