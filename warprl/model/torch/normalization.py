@@ -68,6 +68,42 @@ class RMS(nn.Module):
             self.update(batch)
         return normalized_batch
 
+
+class OnPolicyRMS(nn.Module):
+    """RMS normalizer for on-policy rollouts with a frozen forward snapshot."""
+
+    def __init__(
+        self,
+        obs_shape: int | Sequence[int],
+        epsilon: float = 1e-8,
+        device: torch.device | str | None = None,
+    ) -> None:
+        super().__init__()
+        # Updated from rollout observations.
+        self.rms = RMS(obs_shape, epsilon, device=device)
+        # Used by policy/value forward passes until the next sync.
+        self.frozen_rms = RMS(obs_shape, epsilon, device=device)
+
+    def normalize(self, batch: torch.Tensor, update: bool = False) -> torch.Tensor:
+        if update:
+            self.update(batch)
+        return self.frozen_rms.normalize(batch, update=False)
+
+    @torch.no_grad()
+    def update(self, batch: torch.Tensor) -> None:
+        """Update live rollout statistics without changing forward normalization."""
+        self.rms.update(batch)
+
+    @torch.no_grad()
+    def sync(self) -> None:
+        """Freeze the latest rollout statistics for subsequent forward passes."""
+        self.frozen_rms.mean.copy_(self.rms.mean)
+        self.frozen_rms.var.copy_(self.rms.var)
+        self.frozen_rms.count.copy_(self.rms.count)
+
+    def forward(self, batch: torch.Tensor, update: bool = False) -> torch.Tensor:
+        return self.normalize(batch, update)
+
 class RewardNormalizer(nn.Module):
     """Reward normalizer based on discounted-return statistics."""
 
@@ -130,4 +166,3 @@ class RewardNormalizer(nn.Module):
     ) -> torch.Tensor:
         self.update(rewards, episode_dones)
         return self.normalize(rewards)
-

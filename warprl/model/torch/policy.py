@@ -1,7 +1,6 @@
 from collections.abc import Sequence
 import math
 from torch.distributions.normal import Normal
-from torch.distributions.normal import Normal
 
 import torch
 from torch import nn

@@ -6,11 +6,13 @@ from .normalize_params import project_param
 import orbax.checkpoint as ocp
 from pathlib import Path
 from .dist_head import CategoricalPolicy, QuantilePolicy
-from .normalization import RewardNormalizer, RMS
+from .normalization import OnPolicyRMS, RewardNormalizer, RMS
 from .layer import MLP
 
 
 ModelT = TypeVar("ModelT", bound=nnx.Module)
+
+
 class Network(nnx.Module, Generic[ModelT]):
     def __init__(
         self,
@@ -138,3 +140,33 @@ class Alpha(nnx.Module):
 
     def __call__(self) -> jax.Array:
         return jnp.exp(self.log_alpha)
+
+
+
+
+# PPO adaptive-KL learning-rate rule used by RSL-RL style updates.
+def adapt_lr(
+    lr: float | jax.Array,
+    kl: float | jax.Array,
+    desired_kl: float = 0.01,
+    lr_min: float = 1e-5,
+    lr_max: float = 1e-2,
+    factor: float = 1.5,
+) -> jax.Array:
+    """Return the next learning rate from a scalar policy KL estimate."""
+    lr = jnp.asarray(lr, dtype=jnp.float32)
+    kl = jnp.asarray(kl, dtype=jnp.float32)
+
+    # Large KL means the policy moved too far; reduce the optimizer step.
+    lr = jnp.where(
+        kl > 2.0 * desired_kl,
+        jnp.maximum(lr / factor, lr_min),
+        lr,
+    )
+    # Small positive KL means the update is too conservative; increase the step.
+    lr = jnp.where(
+        (kl < 0.5 * desired_kl) & (kl > 0.0),
+        jnp.minimum(lr * factor, lr_max),
+        lr,
+    )
+    return lr

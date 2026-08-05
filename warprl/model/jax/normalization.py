@@ -55,6 +55,39 @@ class RMS(nnx.Module):
         return normalized_batch
 
 
+class OnPolicyRMS(nnx.Module):
+    """RMS normalizer for on-policy rollouts with a frozen forward snapshot."""
+
+    def __init__(
+        self,
+        obs_shape: int | Sequence[int],
+        epsilon: float = 1e-8,
+    ) -> None:
+        # Updated from rollout observations.
+        self.rms = RMS(obs_shape, epsilon)
+        # Used by policy/value forward passes until the next sync.
+        self.frozen_rms = RMS(obs_shape, epsilon)
+
+    def normalize(self, batch: jax.Array, update: bool = False) -> jax.Array:
+        if update:
+            self.rms.update(batch)
+        return self.frozen_rms.normalize(batch, update=False)
+
+    def update(self, batch: jax.Array) -> None:
+        """Update live rollout statistics without changing forward normalization."""
+        self.rms.update(batch)
+
+    def sync(self) -> None:
+        """Freeze the latest rollout statistics for subsequent forward passes."""
+        self.frozen_rms.mean.value = self.rms.mean.value
+        self.frozen_rms.var.value = self.rms.var.value
+        self.frozen_rms.count.value = self.rms.count.value
+
+    def __call__(self, batch: jax.Array, update: bool = False) -> jax.Array:
+        return self.normalize(batch, update)
+
+
+
 class RewardNormalizer(nnx.Module):
     """Reward normalization state based on discounted-return statistics."""
 
@@ -104,4 +137,3 @@ class RewardNormalizer(nnx.Module):
         """Scale rewards using current discounted-return statistics."""
         rewards = jnp.asarray(rewards, dtype=jnp.float32)
         return rewards / self.denominator()
-

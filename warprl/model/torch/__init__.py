@@ -1,5 +1,5 @@
 from .dist_head import CategoricalPolicy, QuantilePolicy
-from .normalization import RMS, RewardNormalizer
+from .normalization import OnPolicyRMS, RMS, RewardNormalizer
 from .normalize_params import project_param
 import torch.nn as nn
 import torch
@@ -31,8 +31,10 @@ __all__ = [
     "CategoricalPolicy",
     "Network",
     "QuantilePolicy",
+    "OnPolicyRMS",
     "RMS",
     "RewardNormalizer",
+    "adapt_lr",
     "project_param",
 ]
 
@@ -209,3 +211,27 @@ class Alpha(nn.Module):
 
     def forward(self):
         return torch.exp(self.log_alpha)
+
+
+
+# PPO adaptive-KL learning-rate rule used by RSL-RL style updates.
+def adapt_lr(
+    lr: float,
+    kl: float | torch.Tensor,
+    desired_kl: float = 0.01,
+    lr_min: float = 1e-5,
+    lr_max: float = 1e-2,
+    factor: float = 1.5,
+) -> float:
+    """Return the next learning rate from a scalar policy KL estimate."""
+    kl_value = float(kl.detach().cpu()) if torch.is_tensor(kl) else float(kl)
+    next_lr = float(lr)
+
+    # Large KL means the policy moved too far; reduce the optimizer step.
+    if kl_value > 2.0 * desired_kl:
+        next_lr = max(next_lr / factor, lr_min)
+    # Small positive KL means the update is too conservative; increase the step.
+    elif 0.0 < kl_value < 0.5 * desired_kl:
+        next_lr = min(next_lr * factor, lr_max)
+
+    return next_lr
