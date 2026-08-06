@@ -3,7 +3,6 @@ from flax import nnx
 import jax
 
 
-
 def orthogonal(scale: jax.Array = 1):
     return nnx.initializers.orthogonal(scale)
 
@@ -24,7 +23,7 @@ class MLP(nnx.Module):
             nnx.Linear(
                 dims[i], dims[i + 1],
                 rngs=rngs,
-                kernel_init=orthogonal(),
+                kernel_init=orthogonal(1),
                 use_bias=use_bias
             )
             for i in range(len(hidden_dims))

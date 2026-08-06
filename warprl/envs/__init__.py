@@ -8,12 +8,18 @@ CPU_SIM = ("mujoco", "dmc", "myosuite", "humanoid_bench")
 GPU_SIM = ("playground", "isaaclab", "maniskill", "mjlab")
 
 
+class ForwardingVectorWrapper(gym.vector.VectorWrapper):
+    """Expose custom attributes defined by the wrapped vector environment."""
 
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        env = self.__dict__.get("env")
+        if env is None:
+            raise AttributeError(name)
+        return getattr(env, name)
 
-
-
-
-class RepeatAction(gym.vector.VectorWrapper):
+class RepeatAction(ForwardingVectorWrapper):
     """Repeat a batched action until any vector slot finishes."""
 
     def __init__(self, env: VectorEnv, action_repeat: int = 4) -> None:
@@ -40,7 +46,7 @@ class RepeatAction(gym.vector.VectorWrapper):
         return obs, total_reward, terminated, truncated, combined_info
 
 
-class ActionClip(gym.vector.VectorWrapper):
+class ActionClip(ForwardingVectorWrapper):
     """Clip batched actions to the vector environment's action bounds."""
 
     def __init__(self, env: VectorEnv) -> None:

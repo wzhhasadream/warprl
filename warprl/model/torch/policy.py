@@ -1,6 +1,5 @@
 from collections.abc import Sequence
 import math
-from torch.distributions.normal import Normal
 
 import torch
 from torch import nn
@@ -43,41 +42,6 @@ def _action_scale_bias_like(
     )
 
 
-def make_action_affine_bijector(
-    action_low: ActionBound,
-    action_high: ActionBound,
-) -> AffineTransform:
-    """Create an affine transform that maps [-1, 1] to action bounds."""
-    scale, bias = action_scale_bias(action_low, action_high)
-    return AffineTransform(loc=bias, scale=scale)
-
-
-def unbounded_to_action(
-    pre_tanh: torch.Tensor,
-    *,
-    action_low: ActionBound,
-    action_high: ActionBound,
-) -> torch.Tensor:
-    """Map an unbounded action to the bounded action space."""
-    scale, bias = _action_scale_bias_like(action_low, action_high, pre_tanh)
-    return torch.tanh(pre_tanh) * scale + bias
-
-
-def action_to_unbounded(
-    action: torch.Tensor,
-    *,
-    action_low: ActionBound,
-    action_high: ActionBound,
-    eps: float = 1e-6,
-) -> torch.Tensor:
-    """Invert the bounded tanh action transform."""
-    if not 0.0 < eps < 1.0:
-        raise ValueError(f"eps must be in (0, 1), got {eps}")
-    scale, bias = _action_scale_bias_like(action_low, action_high, action)
-    normalized = ((action - bias) / scale).clamp(-1.0 + eps, 1.0 - eps)
-    return torch.atanh(normalized)
-
-
 def squash_log_std_tanh(
     log_std: torch.Tensor,
     *,
@@ -85,8 +49,6 @@ def squash_log_std_tanh(
     log_std_max: float,
 ) -> torch.Tensor:
     """Squash log standard deviations to a closed finite interval."""
-    if log_std_max <= log_std_min:
-        raise ValueError("log_std_max must be larger than log_std_min")
     return log_std_min + 0.5 * (log_std_max - log_std_min) * (
         torch.tanh(log_std) + 1.0
     )
@@ -103,7 +65,7 @@ def squash_tanh_action(
     action = torch.tanh(pre_action) * scale + bias
     logdet_tanh = (
         2.0
-        * (torch.log(torch.tensor(2.0, device=pre_action.device, dtype=pre_action.dtype))
+        * (math.log(2.0)
            - pre_action
            - torch.nn.functional.softplus(-2.0 * pre_action))
     ).sum(dim=-1)
@@ -116,21 +78,6 @@ def squash_tanh_action(
     return action, log_prob - logdet_affine
 
 
-def diagonal_gaussian_kl(
-    mu_c: torch.Tensor,
-    std_c: torch.Tensor,
-    mu_o: torch.Tensor,
-    std_o: torch.Tensor,
-) -> torch.Tensor:
-    """Compute KL(N(mu_o, std_o) || N(mu_c, std_c)) per batch item."""
-    kl = (
-        torch.log(std_c / std_o)
-        + (std_o.square() + (mu_o - mu_c).square()) / (2.0 * std_c.square())
-        - 0.5
-    )
-    return kl.sum(dim=-1)
-
-
 def mask_logits(
     logits: torch.Tensor,
     legal_action_mask: torch.Tensor | None,
@@ -141,10 +88,6 @@ def mask_logits(
     if legal_action_mask is None:
         return logits
     mask = legal_action_mask.to(device=logits.device, dtype=torch.bool)
-    if mask.shape != logits.shape:
-        raise ValueError(
-            f"mask shape {tuple(mask.shape)} must match logits {tuple(logits.shape)}"
-        )
     masked = torch.where(mask, logits, torch.full_like(logits, invalid_logit))
     return torch.where(mask.any(dim=-1, keepdim=True), masked, torch.zeros_like(masked))
 
@@ -156,16 +99,8 @@ def _sample_normal(
 ) -> torch.Tensor:
     if noise is None:
         noise = torch.randn_like(mean)
-    elif noise.shape != mean.shape:
-        raise ValueError(
-            f"noise shape {tuple(noise.shape)} must match mean {tuple(mean.shape)}"
-        )
-    elif noise.device != mean.device:
-        raise ValueError(
-            f"noise device {noise.device} must match mean device {mean.device}"
-        )
     else:
-        noise = noise.to(dtype=mean.dtype)
+        noise = noise.to(device=mean.device, dtype=mean.dtype)
     return mean + std * noise
 
 
@@ -200,19 +135,9 @@ class MaskedCategoricalPolicy(nn.Module):
         if noise is None:
             action = distribution.sample()
         else:
-            if noise.shape != logits.shape[:-1]:
-                raise ValueError(
-                    "categorical noise shape "
-                    f"{tuple(noise.shape)} must match batch shape "
-                    f"{tuple(logits.shape[:-1])}"
-                )
-            if noise.device != logits.device:
-                raise ValueError(
-                    f"noise device {noise.device} must match logits device {logits.device}"
-                )
             probabilities = distribution.probs
             cdf = probabilities.cumsum(dim=-1)
-            uniform_noise = noise.to(dtype=probabilities.dtype).clamp(0.0, 1.0)
+            uniform_noise = noise.to(device=logits.device, dtype=probabilities.dtype).clamp(0.0, 1.0)
             action = torch.searchsorted(
                 cdf,
                 uniform_noise.unsqueeze(-1),
@@ -380,10 +305,6 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         alpha_max: float = 2
     ) -> None:
         super().__init__(action_low, action_high)
-        if action_dim < 1:
-            raise ValueError(f"action_dim must be positive, got {action_dim}")
-        if num_ode < 1:
-            raise ValueError(f"num_ode must be positive, got {num_ode}")
         self.latent_dim = max(action_dim, num_ode)
         self.action_dim = action_dim
         self.num_ode = num_ode
@@ -443,21 +364,12 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
 
     def encode_low_to_high_batch(self, x: torch.Tensor) -> torch.Tensor:
         """Batch version: x shape (B, m), output z shape (B, dim)."""
-        if x.ndim != 2 or x.shape[-1] != self.action_dim:
-            raise ValueError(
-                f"x must have shape (batch_size, {self.action_dim}), got {tuple(x.shape)}"
-            )
         x_pad = torch.nn.functional.pad(x, (0, self.latent_dim - self.action_dim))
         z = x_pad[:, self.perm]
         return z
 
     def decode_high_to_low_batch(self, z: torch.Tensor) -> torch.Tensor:
         """Batch version: z shape (B, dim), output x shape (B, m)."""
-        if z.ndim != 2 or z.shape[-1] != self.latent_dim:
-            raise ValueError(
-                f"z must have shape (batch_size, {self.latent_dim}), got {tuple(z.shape)}"
-            )
-
         x_pad = z[:, self.inv_perm]
         x = x_pad[:, : self.action_dim]
         return x
@@ -520,9 +432,6 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         Returns:
           log_prob: (batch_size, 1)
         """
-        if z.ndim != 2:
-            raise ValueError(
-                f"z must have shape (batch_size, action_dim), got {z.shape}")
         return -0.5 * (z.square() + math.log(2.0 * math.pi)).sum(
             dim=-1,
             keepdim=True,
@@ -543,10 +452,9 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
           action: (batch_size, action_dim)
           log_prob: (batch_size, 1)
         """
-        action, log_prob = squash_tanh_action(
+        return squash_tanh_action(
             pre_action,
             pre_log_prob,
             self.action_low,
             self.action_high,
         )
-        return action, log_prob

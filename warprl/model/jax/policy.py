@@ -1,4 +1,3 @@
-from typing import Any, Optional, TypeAlias
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -6,10 +5,6 @@ from tensorflow_probability.substrates import jax as tfp
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
-
-CategoricalDistribution: TypeAlias = tfd.Categorical
-DiagonalGaussianDistribution: TypeAlias = tfd.MultivariateNormalDiag
-SquashedGaussianDistribution: TypeAlias = tfd.TransformedDistribution
 
 
 def _as_float_array(x: jax.Array) -> jax.Array:
@@ -26,53 +21,6 @@ def action_scale_bias(action_low: jax.Array, action_high: jax.Array) -> tuple[ja
     scale = (action_high - action_low) / 2.0
     bias = (action_high + action_low) / 2.0
     return scale, bias
-
-
-def make_action_affine_bijector(
-    action_low: jax.Array,
-    action_high: jax.Array,
-) -> Any:
-    """Creates an affine bijector that maps [-1, 1] -> [low, high]."""
-    scale, bias = action_scale_bias(action_low, action_high)
-    return tfb.Chain([tfb.Shift(shift=bias), tfb.Scale(scale=scale)])
-
-
-def unbounded_to_action(
-    pre_tanh: jax.Array,
-    *,
-    action_low: jax.Array,
-    action_high: jax.Array,
-) -> jax.Array:
-    """Maps an unbounded latent action to a bounded action in [low, high].
-
-    This is the standard tanh-squash used in SAC-style policies, generalized
-    to arbitrary per-dimension bounds.
-    """
-    scale, bias = action_scale_bias(action_low, action_high)
-    return jnp.tanh(pre_tanh) * scale + bias
-
-
-def action_to_unbounded(
-    action: jax.Array,
-    *,
-    action_low: jax.Array,
-    action_high: jax.Array,
-    eps: float = 1e-6,
-) -> jax.Array:
-    """Maps a bounded action in [low, high] to an unbounded latent space.
-
-    This is the inverse transform of `unbounded_to_action`:
-      pre_tanh = atanh((action - bias) / scale)
-
-    Notes:
-    - We clip the normalized action to (-1 + eps, 1 - eps) to avoid infs.
-    - This transform is useful when you want to model a bounded action with
-      an unbounded density (e.g., a Gaussian in pre-tanh space).
-    """
-    scale, bias = action_scale_bias(action_low, action_high)
-    normalized = (action - bias) / scale
-    normalized = jnp.clip(normalized, -1.0 + eps, 1.0 - eps)
-    return jnp.arctanh(normalized)
 
 
 def squash_log_std_tanh(log_std: jax.Array, *, log_std_min: float, log_std_max: float) -> jax.Array:
@@ -100,18 +48,9 @@ def squash_tanh_action(pre_action: jax.Array, pre_log_prob: jax.Array, action_lo
     return action, log_prob
 
 
-def diagonal_gaussian_kl(mu_c: jax.Array, std_c: jax.Array, mu_o: jax.Array, std_o: jax.Array) -> jax.Array:
-    kl = (
-        jnp.log(std_c / std_o)
-        + (std_o ** 2 + (mu_o - mu_c) ** 2) / (2.0 * std_c ** 2)
-        - 0.5
-    )
-    return kl.sum(axis=-1)
-
-
 def mask_logits(
     logits: jax.Array,
-    legal_action_mask: Optional[jax.Array],
+    legal_action_mask: jax.Array | None,
     *,
     invalid_logit: float = -1e9,
 ) -> jax.Array:
@@ -140,8 +79,8 @@ class MaskedCategoricalPolicy(nnx.Module):
     def dist(
         self,
         logits: jax.Array,
-        legal_action_mask: Optional[jax.Array] = None,
-    ) -> CategoricalDistribution:
+        legal_action_mask: jax.Array | None = None,
+    ):
         masked_logits = mask_logits(
             logits, legal_action_mask, invalid_logit=self.invalid_logit
         )
@@ -151,14 +90,14 @@ class MaskedCategoricalPolicy(nnx.Module):
         self,
         logits: jax.Array,
         key: jax.Array,
-        legal_action_mask: Optional[jax.Array] = None,
+        legal_action_mask: jax.Array | None = None,
     ) -> tuple[jax.Array, jax.Array]:
         d = self.dist(logits, legal_action_mask)
         action = d.sample(seed=key).astype(jnp.int32)
         log_prob = _column_log_prob(d.log_prob(action))
         return action, log_prob
 
-    def greedy_action(self, logits: jax.Array, legal_action_mask: Optional[jax.Array] = None) -> jax.Array:
+    def greedy_action(self, logits: jax.Array, legal_action_mask: jax.Array | None = None) -> jax.Array:
         masked_logits = mask_logits(
             logits, legal_action_mask, invalid_logit=self.invalid_logit
         )
@@ -178,7 +117,7 @@ class GaussianPolicy(nnx.Module):
         self.log_std_max = log_std_max
         self.squash_log_std = squash_log_std
 
-    def dist(self, mean: jax.Array, log_std: jax.Array) -> DiagonalGaussianDistribution:
+    def dist(self, mean: jax.Array, log_std: jax.Array):
         if self.squash_log_std:
             log_std = self.transform_log_std(log_std)
         std = jnp.exp(log_std)
@@ -229,7 +168,7 @@ class SquashedTanhGaussianPolicy(_BoundedActionPolicy):
         self.log_std_max = log_std_max
         self.squash_log_std = squash_log_std
 
-    def dist(self, mean: jax.Array, log_std: jax.Array) -> SquashedGaussianDistribution:
+    def dist(self, mean: jax.Array, log_std: jax.Array):
         if self.squash_log_std:
             log_std = self.transform_log_std(log_std)
         std = jnp.exp(log_std)
@@ -291,9 +230,9 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
 
         self._inv_perm = nnx.Variable(jnp.argsort(self.perm))
 
-        cond_mask, ode_make = self.make_masks(mask_key)
+        cond_mask, ode_mask = self.make_masks(mask_key)
         self._cond_mask, self._ode_mask = nnx.Variable(
-            cond_mask), nnx.Variable(ode_make)    # (num_ode, latent_dim)
+            cond_mask), nnx.Variable(ode_mask)    # (num_ode, latent_dim)
 
     @property
     def cond_mask(self):
@@ -340,18 +279,14 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
 
     def encode_low_to_high_batch(self, x: jax.Array) -> jax.Array:
         """Batch version: x shape (B, m), output z shape (B, dim)."""
-        assert x.shape[-1] == self.action_dim, ""
         x = jnp.asarray(x)
-        m = x.shape[-1]
-
-        pad_width = ((0, 0), (0, self.latent_dim - m))
+        pad_width = ((0, 0), (0, self.latent_dim - self.action_dim))
         x_pad = jnp.pad(x, pad_width)
         z = x_pad[:, self.perm]
         return z
 
     def decode_high_to_low_batch(self, z: jax.Array) -> jax.Array:
         """Batch version: z shape (B, dim), output x shape (B, m)."""
-        assert z.shape[-1] == self.latent_dim, ""
         z = jnp.asarray(z)
 
         x_pad = z[:, self.inv_perm]
@@ -414,9 +349,6 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
         Returns:
           log_prob: (batch_size, 1)
         """
-        if z.ndim != 2:
-            raise ValueError(
-                f"z must have shape (batch_size, action_dim), got {z.shape}")
         return -0.5 * jnp.sum(z**2 + jnp.log(2.0 * jnp.pi), axis=-1, keepdims=True)
 
     def squash_action(
@@ -434,10 +366,9 @@ class CoupledFlowPolicy(_BoundedActionPolicy):
           action: (batch_size, action_dim)
           log_prob: (batch_size, 1)
         """
-        action, log_prob = squash_tanh_action(
+        return squash_tanh_action(
             pre_action,
             pre_log_prob,
             self.action_low.value,
             self.action_high.value,
         )
-        return action, log_prob

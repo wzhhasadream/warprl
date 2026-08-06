@@ -34,7 +34,6 @@ __all__ = [
     "OnPolicyRMS",
     "RMS",
     "RewardNormalizer",
-    "adapt_lr",
     "project_param",
 ]
 
@@ -73,7 +72,7 @@ class Network(nn.Module, Generic[ModelT]):
             self.source_params = tuple(source_model.parameters())
             self.tau = tau
 
-    def grad_step(self, loss: torch.Tensor) -> None:
+    def grad_step(self, loss: torch.Tensor, max_grad_norm: float | None = None) -> None:
         if self.opt is None:
             raise RuntimeError("grad_step requires an optimizer")
 
@@ -81,9 +80,13 @@ class Network(nn.Module, Generic[ModelT]):
 
         if self.grad_scaler is None:
             loss.backward()
+            if max_grad_norm is not None:
+                nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
             self.opt_step()
         else:
             self.grad_scaler.scale(loss).backward()
+            if max_grad_norm is not None:
+                nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
             self.grad_scaler.step(self.opt)
             self.grad_scaler.update()
 
@@ -214,24 +217,3 @@ class Alpha(nn.Module):
 
 
 
-# PPO adaptive-KL learning-rate rule used by RSL-RL style updates.
-def adapt_lr(
-    lr: float,
-    kl: float | torch.Tensor,
-    desired_kl: float = 0.01,
-    lr_min: float = 1e-5,
-    lr_max: float = 1e-2,
-    factor: float = 1.5,
-) -> float:
-    """Return the next learning rate from a scalar policy KL estimate."""
-    kl_value = float(kl.detach().cpu()) if torch.is_tensor(kl) else float(kl)
-    next_lr = float(lr)
-
-    # Large KL means the policy moved too far; reduce the optimizer step.
-    if kl_value > 2.0 * desired_kl:
-        next_lr = max(next_lr / factor, lr_min)
-    # Small positive KL means the update is too conservative; increase the step.
-    elif 0.0 < kl_value < 0.5 * desired_kl:
-        next_lr = min(next_lr * factor, lr_max)
-
-    return next_lr
