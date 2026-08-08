@@ -153,6 +153,52 @@ class MaskedCategoricalPolicy(nn.Module):
         return self.dist(logits, legal_action_mask).logits.argmax(dim=-1)
 
 
+class DiscreteQGreedyPolicy(nn.Module):
+    """Greedily select the highest-valued legal discrete action."""
+
+    @staticmethod
+    def _mask_q_values(
+        q_values: torch.Tensor,
+        legal_action_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if legal_action_mask is None:
+            return q_values
+        mask = legal_action_mask.to(device=q_values.device, dtype=torch.bool)
+        masked_q_values = torch.where(
+            mask,
+            q_values,
+            torch.full_like(q_values, -torch.inf),
+        )
+        return torch.where(
+            mask.any(dim=-1, keepdim=True),
+            masked_q_values,
+            torch.zeros_like(masked_q_values),
+        )
+
+    def action(
+        self,
+        q_values: torch.Tensor,
+        legal_action_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        return self._mask_q_values(q_values, legal_action_mask).argmax(dim=-1)
+
+    def greedy_q(
+        self,
+        q_values: torch.Tensor,
+        legal_action_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        return self._mask_q_values(q_values, legal_action_mask).max(dim=-1).values.to(
+            dtype=torch.float32
+        )
+
+    def greedy_action(
+        self,
+        q_values: torch.Tensor,
+        legal_action_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        return self.action(q_values, legal_action_mask)
+
+
 class GaussianPolicy(nn.Module):
     """Diagonal Gaussian policy without action squashing."""
 

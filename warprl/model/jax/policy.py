@@ -104,6 +104,50 @@ class MaskedCategoricalPolicy(nnx.Module):
         return jnp.argmax(masked_logits, axis=-1).astype(jnp.int32)
 
 
+class DiscreteQGreedyPolicy(nnx.Module):
+    """Greedily select the highest-valued legal discrete action."""
+
+    @staticmethod
+    def _mask_q_values(
+        q_values: jax.Array,
+        legal_action_mask: jax.Array | None,
+    ) -> jax.Array:
+        if legal_action_mask is None:
+            return q_values
+        mask = jnp.asarray(legal_action_mask, dtype=jnp.bool_)
+        masked_q_values = jnp.where(mask, q_values, -jnp.inf)
+        return jnp.where(
+            jnp.any(mask, axis=-1, keepdims=True),
+            masked_q_values,
+            jnp.zeros_like(masked_q_values),
+        )
+
+    def action(
+        self,
+        q_values: jax.Array,
+        legal_action_mask: jax.Array | None = None,
+    ) -> jax.Array:
+        return jnp.argmax(
+            self._mask_q_values(q_values, legal_action_mask), axis=-1
+        ).astype(jnp.int32)
+
+    def greedy_q(
+        self,
+        q_values: jax.Array,
+        legal_action_mask: jax.Array | None = None,
+    ) -> jax.Array:
+        return jnp.max(self._mask_q_values(q_values, legal_action_mask), axis=-1).astype(
+            jnp.float32
+        )
+
+    def greedy_action(
+        self,
+        q_values: jax.Array,
+        legal_action_mask: jax.Array | None = None,
+    ) -> jax.Array:
+        return self.action(q_values, legal_action_mask)
+
+
 class GaussianPolicy(nnx.Module):
     """Diagonal Gaussian policy (no tanh squashing)."""
 
