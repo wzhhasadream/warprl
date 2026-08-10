@@ -26,24 +26,6 @@ from ...base_agent import OffPolicyAgent
 class WarpSACAgent(OffPolicyAgent):
     def __init__(self, envs: VectorEnv, cfg: WarpSACConfig) -> None:
         super().__init__(envs, cfg)
-        self.cfg = cfg
-        self.observation_space = envs.single_observation_space
-        self.action_space = envs.single_action_space
-        self.num_envs = envs.num_envs
-        self.observation_shape = tuple(self.observation_space.shape)
-        self.critic_observation_dim = int(np.prod(self.observation_shape))
-        self.action_dim = int(np.prod(self.action_space.shape))
-        self.asymmetric_obs = getattr(envs, "asymmetric_obs", False)
-        self.actor_observation_dim = self.critic_observation_dim
-        if self.asymmetric_obs:
-            self.actor_observation_dim = int(
-                np.prod(getattr(envs, "actor_observation_size"))
-            )
-
-        self.cfg.asymmetric_obs = self.asymmetric_obs
-        self.cfg.target_entropy = float(
-            0.5 * self.action_dim * np.log(2 * np.pi * np.e * 0.15**2)
-        )
         self.learner_device = "cuda" if torch.cuda.is_available() else "cpu"
         torch.set_float32_matmul_precision("high")
         self.dtype = getattr(torch, cfg.compute_type)

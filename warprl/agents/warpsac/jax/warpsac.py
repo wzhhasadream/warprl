@@ -34,32 +34,6 @@ class WarpSACAgent(OffPolicyAgent):
         cfg: WarpSACConfig,
     ) -> None:
         super().__init__(envs, cfg)
-        self.cfg = cfg
-        self.observation_space = envs.single_observation_space
-        self.action_space = envs.single_action_space
-        self.num_envs = envs.num_envs
-        self.observation_shape = tuple(self.observation_space.shape)
-        self.action_dim = int(np.prod(np.asarray(self.action_space.shape)))
-        self.critic_observation_dim = int(
-            np.prod(np.asarray(self.observation_shape))
-        )
-        self.actor_observation_dim = self.critic_observation_dim
-        self.asymmetric_obs = getattr(envs, 'asymmetric_obs', False)
-        self.cfg.asymmetric_obs = self.asymmetric_obs
-        self.cfg.target_entropy = float(
-            0.5 * self.action_dim * np.log(2 * np.pi * np.e * 0.15**2)
-        )
-        if self.asymmetric_obs:
-            actor_observation_size = getattr(
-                envs, "actor_observation_size", None
-            )
-            if actor_observation_size is None:
-                raise ValueError(
-                    "Asymmetric observations require actor_observation_size"
-                )
-            self.actor_observation_dim = int(
-                np.prod(np.asarray(actor_observation_size))
-            )
 
         self._init_train_state()
         self._init_cached_fn()

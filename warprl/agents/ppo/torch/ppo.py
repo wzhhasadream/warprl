@@ -25,21 +25,6 @@ class PPOAgent(OnPolicyAgent):
 
     def __init__(self, envs: VectorEnv, cfg: PPOConfig) -> None:
         super().__init__(envs, cfg)
-        self.cfg = cfg
-        self.observation_space = envs.single_observation_space
-        self.action_space = envs.single_action_space
-        self.num_envs = int(envs.num_envs)
-        self.observation_shape = tuple(self.observation_space.shape)
-        self.action_shape = tuple(self.action_space.shape)
-        self.critic_observation_dim = int(np.prod(self.observation_shape))
-        self.action_dim = int(np.prod(self.action_shape))
-        self.asymmetric_obs = getattr(envs, "asymmetric_obs", False)
-        self.actor_observation_dim = self.critic_observation_dim
-        if self.asymmetric_obs:
-            self.actor_observation_dim = int(
-                np.prod(getattr(envs, "actor_observation_size"))
-            )
-        self.cfg.asymmetric_obs = self.asymmetric_obs
 
         self.learner_device = default_learner_device()
         torch.manual_seed(self.cfg.seed)
@@ -145,11 +130,9 @@ class PPOAgent(OnPolicyAgent):
         self.agent.load(Path(checkpoint_dir) / "agent.pt")
 
     def save_onnx(self, onnx_dir: str | Path) -> None:
-        onnx_dir = Path(onnx_dir)
-        onnx_dir.mkdir(parents=True, exist_ok=True)
         self.agent.save_onnx(
             onnx_dir / "policy.onnx",
-            [("B", self.actor_observation_dim)],
+            [("1", self.actor_observation_dim)],
         )
 
 

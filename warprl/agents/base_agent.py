@@ -53,6 +53,7 @@ class BaseAgent(ABC):
 
     @property
     def can_update(self) -> bool:
+        pass
 
     @abstractmethod
     def get_action(self, obsveration: Tensor) -> np.ndarray:
@@ -68,6 +69,11 @@ class BaseAgent(ABC):
 
     @abstractmethod
     def load(self, path: str | Path) -> None:
+        pass
+
+
+    @abstractmethod
+    def save_onnx(self, path: str | Path) -> None:
         pass
 
 
