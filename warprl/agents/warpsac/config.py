@@ -103,7 +103,7 @@ def resolve_profile(args: Any) -> Any:
         if args.env_type in GPU_ENV_TYPES:
             profile = args.env_type
             if args.env_type == "mjlab":
-                from ..envs.mjlab import SIM2REAL_TASK_ID
+                from ...envs.mjlab import SIM2REAL_TASK_ID
 
                 if args.env_id in SIM2REAL_TASK_ID:
                     profile = "sim2real"
