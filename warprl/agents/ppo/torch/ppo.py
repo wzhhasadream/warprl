@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from gymnasium.vector import VectorEnv
+
+from ....model.torch import Network
+
+from ....buffers.on_policy import RolloutTransition, TorchBuffer
+from ...base_agent import OnPolicyAgent
+from .get_action import get_eval_action, get_value, sample_and_value
+from .network import Actor, ActorCritic, Critic
+from .update import PPOConfig, update_ppo
+
+
+def default_learner_device() -> torch.device:
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+class PPOAgent(OnPolicyAgent):
+    """PyTorch PPO agent with the same rollout interface as the JAX agent."""
+
+    def __init__(self, envs: VectorEnv, cfg: PPOConfig) -> None:
+        super().__init__(envs, cfg)
+        self.cfg = cfg
+        self.observation_space = envs.single_observation_space
+        self.action_space = envs.single_action_space
+        self.num_envs = int(envs.num_envs)
+        self.observation_shape = tuple(self.observation_space.shape)
+        self.action_shape = tuple(self.action_space.shape)
+        self.critic_observation_dim = int(np.prod(self.observation_shape))
+        self.action_dim = int(np.prod(self.action_shape))
+        self.asymmetric_obs = getattr(envs, "asymmetric_obs", False)
+        self.actor_observation_dim = self.critic_observation_dim
+        if self.asymmetric_obs:
+            self.actor_observation_dim = int(
+                np.prod(getattr(envs, "actor_observation_size"))
+            )
+        self.cfg.asymmetric_obs = self.asymmetric_obs
+
+        self.learner_device = default_learner_device()
+        torch.manual_seed(self.cfg.seed)
+        activation = getattr(F, self.cfg.activation)
+        model = ActorCritic(
+            Actor(
+                self.actor_observation_dim,
+                self.action_dim,
+                self.cfg.actor_hidden_dims,
+                activation,
+            ),
+            Critic(
+                self.critic_observation_dim,
+                self.cfg.critic_hidden_dims,
+                activation,
+            ),
+        ).to(self.learner_device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=self.cfg.lr, fused=True if torch.cuda.is_available() else False)
+        self.agent = Network(model, optimizer, forward_name="get_mean_action")
+        self.replay_buffer = TorchBuffer(
+            self.cfg.rollout_steps,
+            self.observation_space,
+            self.action_space,
+            self.num_envs,
+            device=self.learner_device,
+        )
+
+    @property
+    def observation_debug_info(self) -> dict[str, int | bool]:
+        return {
+            "asymmetric_obs": self.asymmetric_obs,
+            "actor_input_dim": self.actor_observation_dim,
+            "critic_input_dim": self.critic_observation_dim,
+        }
+
+    def _observations(self, observations: np.ndarray | torch.Tensor) -> torch.Tensor:
+        return torch.as_tensor(
+            observations,
+            dtype=torch.float32,
+            device=self.learner_device,
+        ).reshape(-1, self.critic_observation_dim)
+
+    @staticmethod
+    def _numpy(tensor: torch.Tensor) -> np.ndarray:
+        return tensor.detach().cpu().numpy()
+
+    def get_action(self, observations: np.ndarray | torch.Tensor) -> np.ndarray:
+        actions = get_eval_action(
+            self.agent,
+            self.asymmetric_obs,
+            self._observations(observations),
+        )
+        return self._numpy(actions).reshape(-1, *self.action_shape)
+
+    def get_exploration_action(
+        self, observations: np.ndarray | torch.Tensor
+    ) -> np.ndarray:
+        return self.sample_action_and_value(observations)[0]
+
+    def get_value(self, observations: np.ndarray | torch.Tensor) -> np.ndarray:
+        return self._numpy(get_value(self.agent, self._observations(observations)))
+
+    def sample_action_and_value(
+        self,
+        observations: np.ndarray | torch.Tensor,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        actions, log_probs, values, action_means, action_stds = sample_and_value(
+            self.agent,
+            self.asymmetric_obs,
+            self._observations(observations),
+        )
+        return (
+            self._numpy(actions).reshape(-1, *self.action_shape),
+            self._numpy(values),
+            self._numpy(log_probs),
+            self._numpy(action_means).reshape(-1, *self.action_shape),
+            self._numpy(action_stds).reshape(-1, *self.action_shape),
+        )
+
+    def process_transition(self, transition: RolloutTransition) -> None:
+        self.replay_buffer.add(transition)
+
+    @property
+    def can_update(self) -> bool:
+        return self.replay_buffer.full
+
+    def update(self, last_observations: np.ndarray | torch.Tensor) -> dict[str, float]:
+        if not self.can_update:
+            raise RuntimeError("Collect a complete rollout before calling update.")
+        info = update_ppo(
+            self.agent,
+            self.replay_buffer,
+            self._observations(last_observations),
+            self.cfg,
+        )
+        self.replay_buffer.reset()
+        return {key: float(value.detach()) for key, value in info.items()}
+
+    def save(self, checkpoint_dir: str | Path) -> None:
+        self.agent.save(Path(checkpoint_dir) / "agent.pt")
+
+    def load(self, checkpoint_dir: str | Path) -> None:
+        self.agent.load(Path(checkpoint_dir) / "agent.pt")
+
+    def save_onnx(self, onnx_dir: str | Path) -> None:
+        onnx_dir = Path(onnx_dir)
+        onnx_dir.mkdir(parents=True, exist_ok=True)
+        self.agent.save_onnx(
+            onnx_dir / "policy.onnx",
+            [("B", self.actor_observation_dim)],
+        )
+
+
+__all__ = ["PPOAgent", "default_learner_device"]

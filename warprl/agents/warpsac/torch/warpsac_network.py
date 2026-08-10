@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from ...model.torch.layer import (
+from ....model.torch.layer import (
     BatchNorm1d,
     EnsembleBatchNorm1D,
     EnsembleLinear,
@@ -12,8 +12,8 @@ from ...model.torch.layer import (
     Linear,
     RMSNorm,
 )
-from ...model.torch.dist_head import CategoricalPolicy, QuantilePolicy
-from ...model.torch.policy import SquashedTanhGaussianPolicy
+from ....model.torch.dist_head import CategoricalPolicy, QuantilePolicy
+from ....model.torch.policy import SquashedTanhGaussianPolicy
 
 
 def _flattened_dim(observation_dim: int | tuple[int, ...]) -> int:

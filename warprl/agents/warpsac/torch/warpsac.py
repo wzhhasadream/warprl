@@ -6,9 +6,9 @@ import torch
 from gymnasium.vector import VectorEnv
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from ...buffers import Transition
-from ...buffers.torch_buffer import TorchBuffer
-from ...model.torch import (
+from ....buffers.off_policy import Transition
+from ....buffers.off_policy.torch_buffer import TorchBuffer
+from ....model.torch import (
     Alpha,
     Network,
     RewardNormalizer,
@@ -21,9 +21,11 @@ from .get_action import (
 )
 from .update import WarpSACConfig, update_warpsac
 import torch.utils._pytree as pytree
+from ...base_agent import OffPolicyAgent
 
-class WarpSACAgent:
+class WarpSACAgent(OffPolicyAgent):
     def __init__(self, envs: VectorEnv, cfg: WarpSACConfig) -> None:
+        super().__init__(envs, cfg)
         self.cfg = cfg
         self.observation_space = envs.single_observation_space
         self.action_space = envs.single_action_space

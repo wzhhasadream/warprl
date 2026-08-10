@@ -4,8 +4,8 @@ from typing import Literal, Protocol
 import torch
 import torch.nn.functional as functional
 
-from ...buffers import Batch
-from ...model.torch import (
+from ....buffers.off_policy import Batch
+from ....model.torch import (
     Alpha,
     CategoricalPolicy,
     Network,
@@ -13,7 +13,7 @@ from ...model.torch import (
     RewardNormalizer,
 )
 from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
-from ...utils import select_actor_observations
+from ....utils import select_actor_observations
 import torch.utils._pytree as pytree
 
 

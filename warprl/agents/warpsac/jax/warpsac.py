@@ -4,9 +4,10 @@ import jax.numpy as jnp
 from flax import nnx
 import numpy as np
 from optax import adam, cosine_decay_schedule
-from ...buffers import Transition
-from ...buffers.jax_buffer import JaxBuffer
-from ...model.jax import Alpha, Network, RewardNormalizer
+from ....buffers.off_policy import Transition
+from ....buffers.off_policy.jax_buffer import JaxBuffer
+from ....model.jax import Alpha, Network, RewardNormalizer
+from ...base_agent import OffPolicyAgent
 from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
 from gymnasium.vector import VectorEnv
 from .get_action import (
@@ -26,12 +27,13 @@ def default_learner_device() -> jax.Device:
         gpu_devices = []
     return gpu_devices[0] if gpu_devices else jax.devices("cpu")[0]
 
-class WarpSACAgent:
+class WarpSACAgent(OffPolicyAgent):
     def __init__(
         self,
         envs: VectorEnv,
         cfg: WarpSACConfig,
     ) -> None:
+        super().__init__(envs, cfg)
         self.cfg = cfg
         self.observation_space = envs.single_observation_space
         self.action_space = envs.single_action_space

@@ -1,5 +1,4 @@
 from typing import Any
-from ..envs.mjlab import SIM2REAL_TASK_ID
 CPU_ENV_TYPES = {"mujoco", "myosuite", "dmc", "humanoid_bench"}
 GPU_ENV_TYPES = {"playground", "isaaclab", "maniskill", "mjlab"}
 
@@ -103,8 +102,11 @@ def resolve_profile(args: Any) -> Any:
     if profile == "auto":
         if args.env_type in GPU_ENV_TYPES:
             profile = args.env_type
-            if args.env_type == "mjlab" and args.env_id in SIM2REAL_TASK_ID:
-                profile = "sim2real"
+            if args.env_type == "mjlab":
+                from ..envs.mjlab import SIM2REAL_TASK_ID
+
+                if args.env_id in SIM2REAL_TASK_ID:
+                    profile = "sim2real"
         elif args.env_type in CPU_ENV_TYPES:
             profile = "cpu_sim"
         else:

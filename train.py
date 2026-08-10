@@ -12,6 +12,9 @@ import numpy as np
 import tyro
 import dataclasses
 import tqdm
+
+
+
 @dataclasses.dataclass
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'sim2real'] = "auto"
@@ -100,9 +103,9 @@ def main():
         render_mode=render_mode,
     )
     if args.backend == "torch":
-        from warprl.agents.torch import WarpSACAgent
+        from warprl.agents.warpsac.torch import WarpSACAgent
     elif args.backend == "jax":
-        from warprl.agents.jax import WarpSACAgent
+        from warprl.agents.warpsac.jax import WarpSACAgent
     agent = WarpSACAgent(train_envs, args)
     wandb.init(
         project=args.env_type,

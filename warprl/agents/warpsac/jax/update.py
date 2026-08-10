@@ -3,7 +3,7 @@ from typing import Literal, Protocol
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from ...model.jax import (
+from ....model.jax import (
     Alpha, 
     Network, 
     CategoricalPolicy, 
@@ -11,10 +11,10 @@ from ...model.jax import (
     RewardNormalizer,
 )
 from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
-from ...utils import (
+from ....utils import (
     select_actor_observations,
 )
-from ...buffers import Batch
+from ....buffers.off_policy import Batch
 
 
 class WarpSACConfig(Protocol):

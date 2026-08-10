@@ -1,8 +1,12 @@
-from typing import TYPE_CHECKING, NamedTuple
+from __future__ import annotations
 import numpy as np
+from typing import NamedTuple, TYPE_CHECKING, TypeAlias
+
 if TYPE_CHECKING:
-    import torch
     import jax
+    import torch
+
+    Tensor: TypeAlias = jax.Array | torch.Tensor | np.ndarray
 
 class Batch(NamedTuple):
     observations: "jax.Array | np.ndarray | torch.Tensor"

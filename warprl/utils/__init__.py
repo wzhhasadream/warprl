@@ -1,6 +1,6 @@
 from .evaluate import evaluate_policy, record_video
 import numpy as np
-from typing import Any
+from typing import Any, Callable
 
 
 
@@ -34,3 +34,22 @@ def replace_done_next_obs(
     return real_next_obs
 
 
+
+
+def bootstrap_timeout_rewards(
+    rewards: np.ndarray,
+    timeouts: np.ndarray,
+    gamma: float,
+    next_obs: np.ndarray,
+    value_fn: Callable[[np.ndarray], np.ndarray],
+    infos: dict[str, Any],
+) -> np.ndarray:
+    """Add time-limit value bootstrapping without mutating environment rewards."""
+    if not np.any(timeouts):
+        return rewards
+
+    final_obs = replace_done_next_obs(next_obs, timeouts, infos)
+    final_values = value_fn(final_obs)
+    rewards = rewards.copy()
+    rewards[timeouts] += gamma * final_values[timeouts].reshape(-1)
+    return rewards

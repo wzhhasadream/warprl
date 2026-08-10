@@ -5,8 +5,8 @@ from typing import Literal
 from flax import nnx
 from flax.typing import Dtype
 
-from ...model.jax.dist_head import CategoricalPolicy, QuantilePolicy
-from ...model.jax.policy import SquashedTanhGaussianPolicy
+from ....model.jax.dist_head import CategoricalPolicy, QuantilePolicy
+from ....model.jax.policy import SquashedTanhGaussianPolicy
 
 
 def orthogonal(scale: jax.Array = 1):
