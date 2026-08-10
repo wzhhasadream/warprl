@@ -187,15 +187,14 @@ class JaxBuffer(BaseBuffer):
         last_values: jax.Array,
         gamma: float = 0.99,
         gae_lambda: float = 0.95,
-        reward_denominator: float | None = None,
+        reward_scale: float | None = None,
     ) -> "JaxBuffer":
         """Functionally compute returns after Python-side validation."""
         values = self.values.at[-1].set(self._array(last_values,
                                         jnp.float32, (self.num_envs,)))
         rewards = self.rewards
-        if reward_denominator is not None:
-            denominator = jnp.asarray(reward_denominator, dtype=self.rewards.dtype)
-            rewards = rewards / denominator
+        if reward_scale is not None:
+            rewards = rewards * reward_scale
         advantages, returns = self.compute_gae(
             rewards, values, self.dones, gamma, gae_lambda)
         return self.replace(
@@ -303,6 +302,3 @@ class JaxBuffer(BaseBuffer):
         return restored["buffer"]
 
 
-JaxRolloutBuffer = JaxBuffer
-
-__all__ = ["JaxBuffer", "JaxRolloutBuffer"]

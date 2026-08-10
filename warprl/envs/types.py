@@ -1,7 +1,6 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Union
 import numpy as np
 import numpy.typing as npt
-from typing import Any, Union
 
 if TYPE_CHECKING:
     import jax

@@ -120,7 +120,7 @@ class TorchBuffer(BaseBuffer):
         last_values: torch.Tensor,
         gamma: float,
         gae_lambda: float,
-        reward_denominator: float | None = None
+        reward_scale: float | None = None
     ) -> None:
         """Bootstrap the rollout and compute GAE-Lambda targets."""
         if not self.full:
@@ -128,8 +128,8 @@ class TorchBuffer(BaseBuffer):
 
         self.values[-1].copy_(self._tensor(last_values, torch.float32, (self.num_envs,)))
         rewards = self.rewards
-        if reward_denominator is not None:
-            rewards = rewards / reward_denominator
+        if reward_scale is not None:
+            rewards = rewards * reward_scale
         advantage = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
         for step in reversed(range(self.rollout_steps)):
             mask = 1.0 - self.dones[step]
@@ -225,6 +225,3 @@ class TorchBuffer(BaseBuffer):
         return self.num_samples
 
 
-TorchRolloutBuffer = TorchBuffer
-
-__all__ = ["TorchBuffer", "TorchRolloutBuffer"]
