@@ -1,3 +1,5 @@
+import copy
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -31,7 +33,6 @@ class Network(nnx.Module, Generic[ModelT]):
         self.source_model = source_model
         self.forward_name = forward_name
 
-
     def grad_step(self, grads: nnx.State):
         if self.opt is not None:
             self.opt.update(grads)
@@ -47,7 +48,6 @@ class Network(nnx.Module, Generic[ModelT]):
         if self.forward_name is not None:
             return getattr(self.model, self.forward_name)(*args, **kwargs)
         return self.model(*args, **kwargs)
-
 
     def save(self, checkpoint_dir: str | Path) -> None:
         """Save parameters and optimizer state to an Orbax checkpoint."""
@@ -89,27 +89,30 @@ class Network(nnx.Module, Generic[ModelT]):
 
         out_file = Path(file)
         out_file.parent.mkdir(parents=True, exist_ok=True)
-        self.model.eval()
-        try:
-            model = to_onnx(self, input_shapes)
-            input_renames = {
-                value.name: name for value, name in zip(model.graph.input, input_names)
-            }
-            output_renames = {
-                value.name: name for value, name in zip(model.graph.output, output_names)
-            }
-            for node in model.graph.node:
-                node.input[:] = [input_renames.get(x, x) for x in node.input]
-                node.output[:] = [output_renames.get(x, x) for x in node.output]
-            for value, name in zip(model.graph.input, input_names):
-                value.name = name
-            for value, name in zip(model.graph.output, output_names):
-                value.name = name
-            onnx.save(model, out_file)
-        finally:
-            self.model.train()
+        export_model = copy.deepcopy(self.model)
+        export_model.eval()
+        forward_name = self.forward_name
 
+        def export_forward(*args, **kwargs):
+            if forward_name is not None:
+                return getattr(export_model, forward_name)(*args, **kwargs)
+            return export_model(*args, **kwargs)
 
+        model = to_onnx(export_forward, input_shapes)
+        input_renames = {
+            value.name: name for value, name in zip(model.graph.input, input_names)
+        }
+        output_renames = {
+            value.name: name for value, name in zip(model.graph.output, output_names)
+        }
+        for node in model.graph.node:
+            node.input[:] = [input_renames.get(x, x) for x in node.input]
+            node.output[:] = [output_renames.get(x, x) for x in node.output]
+        for value, name in zip(model.graph.input, input_names):
+            value.name = name
+        for value, name in zip(model.graph.output, output_names):
+            value.name = name
+        onnx.save(model, out_file)
 
 
 def soft_update(
@@ -140,8 +143,3 @@ class Alpha(nnx.Module):
 
     def __call__(self) -> jax.Array:
         return jnp.exp(self.log_alpha)
-
-
-
-
-
