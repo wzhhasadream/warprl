@@ -182,7 +182,7 @@ class WarpSACAgent(OffPolicyAgent):
                 self.actor,
                 self.alpha,
                 self.target_critic,
-                self.reward_normalizer.model if self.reward_normalizer is not None else None,
+                self.reward_normalizer,
                 do_policy,
                 do_target,
                 batch,

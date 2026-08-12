@@ -51,7 +51,7 @@ class WarpSACAgent(OffPolicyAgent):
             self.actor,
             self.alpha,
             self.target_critic,
-            reward_normalizer,
+            self.reward_normalizer,
         )
         self._get_action_fn = nnx.cached_partial(
             get_eval_action,

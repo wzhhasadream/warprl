@@ -185,7 +185,7 @@ def make_update_warpsac(config: WarpSACConfig):
         actor: Network[FlashSACActor],
         alpha: Network[Alpha],
         target_critic: Network[FlashSACDoubleCritic],
-        reward_normalizer: RewardNormalizer | None,
+        reward_normalizer: Network[RewardNormalizer] | None,
         critic_grad_updates: jax.Array,
         key: jax.Array,
         big_batch: Batch,
@@ -195,7 +195,7 @@ def make_update_warpsac(config: WarpSACConfig):
             assert actor.model.obs_dim != critic.model.critic.obs_dim
 
         if config.normalize_rewards and reward_normalizer is not None:
-            normalized_rewards = reward_normalizer.normalize(big_batch.rewards)
+            normalized_rewards = reward_normalizer.model.normalize(big_batch.rewards)
             big_batch = big_batch._replace(rewards=normalized_rewards)
 
 

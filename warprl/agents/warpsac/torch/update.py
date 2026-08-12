@@ -217,7 +217,7 @@ def update_warpsac(
     actor: Network[FlashSACActor],
     alpha: Network[Alpha],
     target_critic: Network[FlashSACDoubleCritic],
-    reward_normalizer: RewardNormalizer | None,
+    reward_normalizer: Network[RewardNormalizer] | None,
     do_policy: bool,
     do_target: bool,
     batch: Batch,
@@ -226,7 +226,7 @@ def update_warpsac(
 
     if reward_normalizer is not None:
         batch = batch._replace(
-            rewards=reward_normalizer.normalize(batch.rewards)
+            rewards=reward_normalizer.model.normalize(batch.rewards)
         )
     policy_info = {}
     if do_policy:
