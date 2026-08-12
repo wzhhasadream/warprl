@@ -9,11 +9,13 @@ from gymnasium.vector import VectorEnv
 
 from ....model.torch import Network
 
-from ....buffers.on_policy import RolloutTransition, TorchBuffer
+from ....buffers.on_policy.torch_buffer import TorchBuffer
+from ....buffers.on_policy.types import RolloutTransition
+from ...config.ppo import PPOConfig
 from ...base_agent import OnPolicyAgent
 from .get_action import get_eval_action, get_value, sample_and_value
 from .network import Actor, ActorCritic, Critic
-from .update import PPOConfig, update_ppo
+from .update import update_ppo
 
 
 def default_learner_device() -> torch.device:
@@ -52,13 +54,6 @@ class PPOAgent(OnPolicyAgent):
             device=self.learner_device,
         )
 
-    @property
-    def observation_debug_info(self) -> dict[str, int | bool]:
-        return {
-            "asymmetric_obs": self.asymmetric_obs,
-            "actor_input_dim": self.actor_observation_dim,
-            "critic_input_dim": self.critic_observation_dim,
-        }
 
     def _observations(self, observations: np.ndarray | torch.Tensor) -> torch.Tensor:
         return torch.as_tensor(

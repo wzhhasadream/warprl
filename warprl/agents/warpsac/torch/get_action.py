@@ -1,4 +1,4 @@
-from ....model.torch import RewardNormalizer
+from ....model.torch import RewardNormalizer, Network
 from .warpsac_network import FlashSACActor
 import torch
 from ....utils import select_actor_observations
@@ -9,10 +9,11 @@ compile_mode = "max-autotune"
 @torch.no_grad()
 @torch.compile(mode=compile_mode, fullgraph=True)
 def get_eval_action(
-    actor: FlashSACActor,
+    actor: Network[FlashSACActor],
     asymmetric_obs: bool,
     observations: torch.Tensor,
 ) -> torch.Tensor:
+    actor = actor.model
     obs = select_actor_observations(
         observations, asymmetric_obs, actor.obs_dim
     )
@@ -22,7 +23,7 @@ def get_eval_action(
 @torch.no_grad()
 @torch.compile(mode=compile_mode, fullgraph=True)
 def get_exploration_action(
-    actor: FlashSACActor,
+    actor: Network[FlashSACActor],
     asymmetric_obs: bool,
     observations: torch.Tensor,
     repeat_n: torch.Tensor,
@@ -30,6 +31,7 @@ def get_exploration_action(
     cached_noise: torch.Tensor,
     noise: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    actor = actor.model
     obs = select_actor_observations(
         observations, asymmetric_obs, actor.obs_dim
     )
@@ -45,10 +47,10 @@ def get_exploration_action(
 @torch.no_grad()
 @torch.compile(mode=compile_mode, fullgraph=True)
 def update_reward_normalizer(
-    reward_normalizer: RewardNormalizer | None,
+    reward_normalizer: Network[RewardNormalizer] | None,
     rewards: torch.Tensor,
     terminations: torch.Tensor,
     truncations: torch.Tensor,
 ) -> None:
     if reward_normalizer is not None:
-        reward_normalizer.update(rewards, terminations.bool() | truncations.bool())
+        reward_normalizer.model.update(rewards, terminations.bool() | truncations.bool())

@@ -1,6 +1,5 @@
 from .warpsac import WarpSACAgent
 from .update import (
-    WarpSACConfig,
     update_actor,
     update_alpha,
     update_critic,
@@ -9,7 +8,6 @@ from .update import (
 )
 
 __all__ = [
-    "WarpSACConfig",
     "WarpSACAgent",
     "update_actor",
     "update_alpha",

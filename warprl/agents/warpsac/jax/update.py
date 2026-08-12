@@ -1,5 +1,3 @@
-from typing import Literal, Protocol
-
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -15,46 +13,7 @@ from ....utils import (
     select_actor_observations,
 )
 from ....buffers.off_policy import Batch
-
-
-class WarpSACConfig(Protocol):
-    seed: int
-    env_type: str
-    num_envs: int
-    total_timesteps: int
-
-    buffer_size: int
-    learning_starts: int
-    batch_size: int
-    grad_step_per_interaction_step: int
-    gamma: float
-    decay_step: int
-    n_step: int
-    buffer_device: str
-
-    compute_type: Literal["float32", "bfloat16"]
-    policy_lr: float
-    q_lr: float
-    end_lr: float
-    policy_frequency: int
-    target_frequency: int
-    tau: float
-    target_entropy: float
-
-    actor_hidden_dim: int
-    actor_num_blocks: int
-    critic_hidden_dim: int
-    critic_num_blocks: int
-    num_q: int
-    num_head: int
-    use_bias: bool
-    dist_type: Literal["quantile", "ce", "scalar"]
-    q_agg: Literal["mean", "min"]
-
-    actor_normalize_parameters: bool
-    critic_normalize_parameters: bool
-    normalize_rewards: bool
-    asymmetric_obs: bool
+from ...config.warpsac import WarpSACConfig
 
 
 def update_critic(

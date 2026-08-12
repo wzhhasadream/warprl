@@ -8,6 +8,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from ....buffers.off_policy import Transition
 from ....buffers.off_policy.torch_buffer import TorchBuffer
+from ...config.warpsac import WarpSACConfig
 from ....model.torch import (
     Alpha,
     Network,
@@ -19,7 +20,7 @@ from .get_action import (
     get_exploration_action,
     update_reward_normalizer,
 )
-from .update import WarpSACConfig, update_warpsac
+from .update import update_warpsac
 import torch.utils._pytree as pytree
 from ...base_agent import OffPolicyAgent
 
@@ -28,7 +29,6 @@ class WarpSACAgent(OffPolicyAgent):
         super().__init__(envs, cfg)
         self.learner_device = "cuda" if torch.cuda.is_available() else "cpu"
         torch.set_float32_matmul_precision("high")
-        self.dtype = getattr(torch, cfg.compute_type)
         torch.manual_seed(cfg.seed)
         self._init_train_state()
         self._update_fn = update_warpsac
@@ -36,14 +36,6 @@ class WarpSACAgent(OffPolicyAgent):
         self.repeat_n = torch.tensor(0, device=self.learner_device)
         self.cached_noise = torch.randn((self.num_envs, self.action_dim), device=self.learner_device)
         self.critic_grad_updates = 0
-
-    @property
-    def observation_debug_info(self) -> dict[str, int | bool]:
-        return {
-            "asymmetric_obs": self.asymmetric_obs,
-            "actor_input_dim": self.actor_observation_dim,
-            "critic_input_dim": self.critic_observation_dim,
-        }
 
     def _init_train_state(self) -> None:
         num_updates = int(
@@ -140,7 +132,7 @@ class WarpSACAgent(OffPolicyAgent):
 
     def get_action(self, observations: np.ndarray | torch.Tensor) -> np.ndarray:
         actions = get_eval_action(
-            self.actor.model, self.asymmetric_obs, self._observations(observations)
+            self.actor, self.asymmetric_obs, self._observations(observations)
         )
         return actions.cpu().numpy()
 
@@ -150,7 +142,7 @@ class WarpSACAgent(OffPolicyAgent):
         observations = self._observations(observations)
         noise = torch.randn((self.num_envs, self.action_dim), device=self.learner_device)
         cached_noise, actions, repeat_n, repeat_count = get_exploration_action(
-            self.actor.model,
+            self.actor,
             self.asymmetric_obs,
             observations,
             self.repeat_n,
@@ -167,7 +159,7 @@ class WarpSACAgent(OffPolicyAgent):
 
     def process_transition(self, transition: Transition) -> None:
         update_reward_normalizer(
-            self.reward_normalizer.model,
+            self.reward_normalizer,
             torch.as_tensor(transition.rewards, device=self.learner_device),
             torch.as_tensor(transition.terminations, device=self.learner_device),
             torch.as_tensor(transition.truncations, device=self.learner_device),

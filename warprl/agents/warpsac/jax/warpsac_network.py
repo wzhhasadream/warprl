@@ -172,7 +172,6 @@ class FlashSACActor(nnx.Module):
         observations: jax.Array,
         training: bool = True,
     ) -> tuple[jax.Array, jax.Array]:
-        observations = observations.astype(self.compute_type)
         x = self.encoder(observations, training=training)
         mean = self.fc_mean(x)
         log_std = self.fc_log_std(x)
@@ -190,16 +189,11 @@ class FlashSACActor(nnx.Module):
         return action, log_prob
 
     def get_mean_action(self, observations: jax.Array) -> jax.Array:
-        observations = observations.astype(self.compute_type)
         x = self.encoder(observations, training=False)
         mean = self.fc_mean(x)
         return self.policy.mean_action(mean).astype(jnp.float32)
 
 
-    def get_mean_std(self, observations: jax.Array):
-        mean, raw_log_std = self(observations, False)
-        log_std = self.policy.transform_log_std(raw_log_std)
-        return mean, log_std
 
 
 
@@ -252,7 +246,6 @@ class FlashSACQNetwork(nnx.Module):
         training: bool = True,
     ) -> jax.Array:
         x = jnp.concatenate((observations, actions), axis=-1)
-        x = x.astype(self.compute_type)
         x = self.encoder(x, training=training)
         return self.out(x).astype(jnp.float32)
 

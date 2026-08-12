@@ -1,6 +1,6 @@
 import warprl.utils.logger as wandb
 from typing import Literal
-from warprl.agents.warpsac import resolve_profile
+from warprl.agents.config.warpsac import resolve_profile
 from warprl.envs import create_envs
 from warprl.utils import (
     evaluate_policy, 

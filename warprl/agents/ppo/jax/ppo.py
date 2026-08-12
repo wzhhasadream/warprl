@@ -13,10 +13,11 @@ from gymnasium.vector import VectorEnv
 from ....model.jax import Network
 from ....buffers.on_policy.jax_buffer import JaxBuffer
 from ....buffers.on_policy.types import RolloutTransition
+from ...config.ppo import PPOConfig
 from ...base_agent import OnPolicyAgent
 from .get_action import get_eval_action, get_value, sample_and_value
 from .network import Actor, ActorCritic, Critic
-from .update import PPOConfig, make_update_ppo
+from .update import make_update_ppo
 
 
 def default_learner_device() -> jax.Device:
@@ -38,24 +39,14 @@ class PPOAgent(OnPolicyAgent):
         self._init_train_state()
         self._init_cached_fn()
 
-    @property
-    def observation_debug_info(self) -> dict[str, int | bool]:
-        return {
-            "asymmetric_obs": self.asymmetric_obs,
-            "actor_input_dim": self.actor_observation_dim,
-            "critic_input_dim": self.critic_observation_dim,
-        }
-
     def _init_train_state(self) -> None:
-        optimizer = optax.chain(
-            optax.clip_by_global_norm(self.cfg.max_grad_norm),
-            optax.inject_hyperparams(optax.adam)(learning_rate=self.cfg.lr),
-        )
+        optimizer = optax.inject_hyperparams(optax.adam)(learning_rate=self.cfg.lr)
+        
 
         rngs = nnx.Rngs(self.cfg.seed)
         model = ActorCritic(
-            Actor(self.actor_observation_dim, self.action_dim, self.cfg.actor_hidden_dims, rngs, getattr(jax.nn, self.cfg.activation)),
-            Critic(self.critic_observation_dim, self.cfg.critic_hidden_dims, rngs, getattr(jax.nn, self.cfg.activation)),
+            Actor(self.actor_observation_dim, self.action_dim, self.cfg.actor_hidden_dims, rngs, getattr(jax.nn, self.cfg.activation), init_std=self.cfg.init_std, compute_type=self.cfg.compute_type),
+            Critic(self.critic_observation_dim, self.cfg.critic_hidden_dims, rngs, getattr(jax.nn, self.cfg.activation), compute_type=self.cfg.compute_type),
         )
         self.agent = Network(
             model,

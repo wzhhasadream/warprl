@@ -5,20 +5,22 @@ from ....model.jax import RewardNormalizer
 from .warpsac_network import FlashSACActor
 from .zeta_dist import sample_truncated_zeta
 from ....utils import select_actor_observations
+from ....model.jax import Network
 
 @nnx.jit(static_argnames=("asymmetric_obs",))
 def get_eval_action(
-    actor: FlashSACActor,
+    actor: Network[FlashSACActor],
     asymmetric_obs: bool,
     obs: jax.Array,
 ) -> jax.Array:
+    actor = actor.model
     obs = select_actor_observations(obs, asymmetric_obs, actor.obs_dim)
     return actor.get_mean_action(obs)
 
 
 @nnx.jit(static_argnames=("asymmetric_obs",))
 def get_exploration_action(
-    actor: FlashSACActor,
+    actor: Network[FlashSACActor],
     asymmetric_obs: bool,
     obs: jax.Array,
     repeat_n: jax.Array,
@@ -26,6 +28,7 @@ def get_exploration_action(
     cached_key: jax.Array,
     key: jax.Array,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    actor = actor.model
     zeta_key, action_key = jax.random.split(key, 2)
     obs = select_actor_observations(obs, asymmetric_obs, actor.obs_dim)
 
@@ -40,7 +43,7 @@ def get_exploration_action(
 
 @nnx.jit
 def update_reward_normalizer(
-    reward_normalizer: RewardNormalizer | None,
+    reward_normalizer: Network[RewardNormalizer] | None,
     rewards: jax.Array,
     terminations: jax.Array,
     truncations: jax.Array
@@ -48,4 +51,4 @@ def update_reward_normalizer(
     if reward_normalizer is None:
         return
     episode_dones = jnp.logical_or(terminations, truncations)
-    reward_normalizer.update(rewards, episode_dones)
+    reward_normalizer.model.update(rewards, episode_dones)

@@ -1,4 +1,48 @@
-from typing import Any
+from typing import Any, Literal, Protocol
+
+
+class WarpSACConfig(Protocol):
+    """Configuration fields shared by the JAX and PyTorch WarpSAC agents."""
+
+    seed: int
+    env_type: str
+    num_envs: int
+    total_timesteps: int
+
+    buffer_size: int
+    learning_starts: int
+    batch_size: int
+    grad_step_per_interaction_step: int
+    gamma: float
+    decay_step: int
+    n_step: int
+    buffer_device: str
+
+    compute_type: Literal["float32", "bfloat16"]
+    policy_lr: float
+    q_lr: float
+    end_lr: float
+    policy_frequency: int
+    target_frequency: int
+    tau: float
+    target_entropy: float
+
+    actor_hidden_dim: int
+    actor_num_blocks: int
+    critic_hidden_dim: int
+    critic_num_blocks: int
+    num_q: int
+    num_head: int
+    use_bias: bool
+    dist_type: Literal["quantile", "ce", "scalar"]
+    q_agg: Literal["mean", "min"]
+
+    actor_normalize_parameters: bool
+    critic_normalize_parameters: bool
+    normalize_rewards: bool
+    asymmetric_obs: bool
+
+
 CPU_ENV_TYPES = {"mujoco", "myosuite", "dmc", "humanoid_bench"}
 GPU_ENV_TYPES = {"playground", "isaaclab", "maniskill", "mjlab"}
 
@@ -12,11 +56,11 @@ PROFILE_DEFAULTS = {
         grad_step_per_interaction_step=1,
         gamma=0.99,
         decay_step=80_000,
-        compute_type='float32',
+        compute_type="float32",
         n_step=1,
         buffer_device="cpu",
         eval_episode=50,
-        num_eval_envs=1
+        num_eval_envs=1,
     ),
     "playground": dict(
         num_envs=1024,
@@ -27,11 +71,11 @@ PROFILE_DEFAULTS = {
         grad_step_per_interaction_step=2,
         gamma=0.97,
         decay_step=2_000,
-        compute_type='bfloat16',
+        compute_type="bfloat16",
         n_step=1,
         buffer_device="cuda",
         eval_episode=50,
-        num_eval_envs=50
+        num_eval_envs=50,
     ),
     "maniskill": dict(
         num_envs=1024,
@@ -42,11 +86,11 @@ PROFILE_DEFAULTS = {
         grad_step_per_interaction_step=2,
         gamma=0.9,
         decay_step=2_000,
-        compute_type='bfloat16',
+        compute_type="bfloat16",
         n_step=1,
         buffer_device="cuda",
         eval_episode=50,
-        num_eval_envs=50
+        num_eval_envs=50,
     ),
     "isaaclab": dict(
         num_envs=1024,
@@ -57,11 +101,10 @@ PROFILE_DEFAULTS = {
         grad_step_per_interaction_step=2,
         gamma=0.99,
         decay_step=2_000,
-        compute_type='bfloat16',
+        compute_type="bfloat16",
         n_step=3,
         buffer_device="cuda",
         eval_episode=1024,
-        # IsaacLab reuses the training vector env for evaluation, so eval envs match train envs.
         num_eval_envs=1024,
     ),
     "mjlab": dict(
@@ -73,7 +116,7 @@ PROFILE_DEFAULTS = {
         grad_step_per_interaction_step=2,
         gamma=0.99,
         decay_step=2_000,
-        compute_type='bfloat16',
+        compute_type="bfloat16",
         n_step=3,
         buffer_device="cuda",
         eval_episode=50,
@@ -88,7 +131,7 @@ PROFILE_DEFAULTS = {
         grad_step_per_interaction_step=2,
         gamma=0.99,
         decay_step=2_000,
-        compute_type='bfloat16',
+        compute_type="bfloat16",
         n_step=3,
         buffer_device="cuda",
         eval_episode=50,
@@ -117,10 +160,10 @@ def resolve_profile(args: Any) -> Any:
             f"Unknown profile {profile!r}; expected one of {tuple(PROFILE_DEFAULTS)}"
         )
 
-    defaults = PROFILE_DEFAULTS[profile]
-    for key, value in defaults.items():
+    for key, value in PROFILE_DEFAULTS[profile].items():
         if getattr(args, key) is None:
             setattr(args, key, value)
-
-
     return args
+
+
+__all__ = ["PROFILE_DEFAULTS", "WarpSACConfig", "resolve_profile"]

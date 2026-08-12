@@ -6,6 +6,7 @@ import numpy as np
 from optax import adam, cosine_decay_schedule
 from ....buffers.off_policy import Transition
 from ....buffers.off_policy.jax_buffer import JaxBuffer
+from ...config.warpsac import WarpSACConfig
 from ....model.jax import Alpha, Network, RewardNormalizer
 from ...base_agent import OffPolicyAgent
 from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
@@ -15,7 +16,7 @@ from .get_action import (
     get_exploration_action,
     update_reward_normalizer,
 )
-from .update import WarpSACConfig, make_update_warpsac
+from .update import make_update_warpsac
 from pathlib import Path
 
 
@@ -42,22 +43,8 @@ class WarpSACAgent(OffPolicyAgent):
             jax.random.PRNGKey(cfg.seed), 3
         )
 
-
-    @property
-    def observation_debug_info(self) -> dict[str, int | bool]:
-        return {
-            "asymmetric_obs": self.asymmetric_obs,
-            "actor_input_dim": self.actor_observation_dim,
-            "critic_input_dim": self.critic_observation_dim,
-        }
-
     def _init_cached_fn(self):
         update_fn = make_update_warpsac(self.cfg)
-        reward_normalizer = (
-            self.reward_normalizer.model
-            if self.reward_normalizer is not None
-            else None
-        )
         self._update_fn = nnx.cached_partial(
             update_fn,
             self.critic,
@@ -68,17 +55,17 @@ class WarpSACAgent(OffPolicyAgent):
         )
         self._get_action_fn = nnx.cached_partial(
             get_eval_action,
-            self.actor.model,
+            self.actor,
             self.asymmetric_obs,
         )
         self._get_exploration_action_fn = nnx.cached_partial(
             get_exploration_action,
-            self.actor.model,
+            self.actor,
             self.asymmetric_obs,
         )
         self._update_reward_normalizer = nnx.cached_partial(
             update_reward_normalizer,
-            reward_normalizer,
+            self.reward_normalizer,
         )
 
     def _init_train_state(

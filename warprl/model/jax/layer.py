@@ -1,7 +1,7 @@
 from typing import Callable, Sequence
 from flax import nnx
 import jax
-
+from flax.typing import Dtype
 
 def orthogonal(scale: jax.Array = 1):
     return nnx.initializers.orthogonal(scale)
@@ -15,7 +15,8 @@ class MLP(nnx.Module):
         rngs: nnx.Rngs,
         layer_norm: bool = True,
         activation_fn: Callable[[jax.Array], jax.Array] = jax.nn.relu,
-        use_bias: bool = True
+        use_bias: bool = True,
+        compute_type: Dtype = jnp.float32
     ):
         dims = [in_dim] + list(hidden_dims)
 
@@ -24,7 +25,8 @@ class MLP(nnx.Module):
                 dims[i], dims[i + 1],
                 rngs=rngs,
                 kernel_init=orthogonal(1),
-                use_bias=use_bias
+                use_bias=use_bias,
+                dtype=compute_type
             )
             for i in range(len(hidden_dims))
         ]
@@ -33,7 +35,7 @@ class MLP(nnx.Module):
         self.activation_fn = activation_fn
         if layer_norm:
             self.norms = [
-                nnx.LayerNorm(num_features=dims[i + 1], rngs=rngs)
+                nnx.LayerNorm(num_features=dims[i + 1], rngs=rngs, dtype=compute_type)
                 for i in range(len(hidden_dims))
             ]
 

@@ -15,6 +15,7 @@ class Actor(nn.Module):
         action_dim: int,
         hidden_dims: Sequence[int],
         activation: Callable[[torch.Tensor], torch.Tensor] = F.elu,
+        init_std: float = 1
     ) -> None:
         super().__init__()
         self.obs_dim = obs_dim
@@ -25,7 +26,7 @@ class Actor(nn.Module):
             layer_norm=True,
             activation_fn=activation,
         )
-        self.log_std = nn.Parameter(torch.zeros(action_dim))
+        self.log_std = nn.Parameter(torch.ones(action_dim) * torch.log(init_std))
         self.mean_head = Linear(hidden_dims[-1], action_dim)
         self.policy = GaussianPolicy()
 

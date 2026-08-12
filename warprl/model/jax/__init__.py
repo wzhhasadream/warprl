@@ -33,8 +33,10 @@ class Network(nnx.Module, Generic[ModelT]):
         self.source_model = source_model
         self.forward_name = forward_name
 
-    def grad_step(self, grads: nnx.State):
+    def grad_step(self, grads: nnx.State, max_grad_norm: float | None = None):
         if self.opt is not None:
+            if max_grad_norm is not None:
+                grads = clip_grads(grads)
             self.opt.update(grads)
 
     def soft_update(self) -> None:
@@ -130,6 +132,14 @@ def soft_update(
         target_params,
     )
     nnx.update(target_net, new_params)
+
+
+def clip_grads(grads: nnx.State, max_grad_norm: float) -> nnx.State:
+    grad_norm = jnp.sqrt(
+        sum(jnp.sum(grad * grad) for grad in jax.tree.leaves(grads))
+    )
+    scale = jnp.minimum(1.0, max_grad_norm / (grad_norm + 1e-6))
+    return jax.tree.map(lambda grad: grad * scale, grads)
 
 
 class Alpha(nnx.Module):

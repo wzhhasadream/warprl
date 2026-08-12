@@ -1,36 +1,16 @@
 from __future__ import annotations
 
-from typing import Protocol
 import jax
 import jax.numpy as jnp
 from flax import nnx
 
 from .network import Actor, ActorCritic, Critic
 from .utils import adapt_lr, diagonal_gaussian_kl
-from ....buffers.on_policy import JaxBuffer, RolloutBatch
-from ....model.jax import Network
+from ....buffers.on_policy.jax_buffer import JaxBuffer
+from ....buffers.on_policy.types import RolloutBatch
+from ...config.ppo import PPOConfig
+from ....model.jax import Network, clip_grads
 from ....utils import select_actor_observations
-
-class PPOConfig(Protocol):
-    algo: str = "ppo"
-    seed: int = 0
-    rollout_steps: int = 2048
-    num_mini_batches: int = 32
-    num_epochs: int = 5
-    total_timesteps: int = 1_000_000
-    gamma: float = 0.99
-    gae_lambda: float = 0.95
-    lr: float = 3e-4
-    max_grad_norm: float = 1.0
-    hidden_dims: tuple[int, ...] = (64, 64)
-    asymmetric_obs: bool = False
-    reward_normalize: bool = False
-    clip_coef: float = 0.2
-    value_coef: float = 0.5
-    entropy_coef: float = 0.0
-    clip_value: bool = True
-
-
 
 def update_ppo_minibatch(
     agent: Network[ActorCritic[Actor, Critic]],
@@ -112,12 +92,14 @@ def update_ppo_minibatch(
 
     (_loss, info), grads = nnx.value_and_grad(ppo_loss, has_aux=True)(agent.model)
     if cfg.algo == "ppo":
-        lr = agent.opt.opt_state[1].hyperparams["learning_rate"].value
+        lr = agent.opt.opt_state.hyperparams["learning_rate"].value
         lr = adapt_lr(
             lr,
             info["training/kl"]
         )
         agent.opt.opt_state[1].hyperparams["learning_rate"].value = lr
+    grads["actor"] = clip_grads(grads["actor"], cfg.max_grad_norm)
+    grads["critic"] = clip_grads(grads["critic"], cfg.max_grad_norm)
     agent.grad_step(grads)
     return agent, info
 

@@ -5,7 +5,7 @@ from ....model.jax import MLP, OnPolicyRMS
 from ....model.jax.policy import GaussianPolicy
 import jax.numpy as jnp
 from ....model.jax.layer import orthogonal
-
+from flax.typing import Dtype
 
 class Actor(nnx.Module):
     def __init__(
@@ -14,15 +14,17 @@ class Actor(nnx.Module):
         action_dim: int,
         hidden_dims: Sequence[int],
         rngs: nnx.Rngs,
-        activation: Callable[[jax.Array], jax.Array] = jax.nn.elu
+        activation: Callable[[jax.Array], jax.Array] = jax.nn.elu,
+        init_std: float = 1,
+        cumpute_type: Dtype = jnp.float32
     ) -> None:
 
         self.obs_dim = obs_dim
         self.obs_norm = OnPolicyRMS(obs_dim)
         self.encoder = MLP(obs_dim, hidden_dims, rngs,
-                           activation_fn=activation)
-        self.log_std = nnx.Param(jnp.zeros((action_dim, )))
-        self.mean_head = nnx.Linear(hidden_dims[-1], action_dim, rngs=rngs, kernel_init=orthogonal(1))
+                           activation_fn=activation, cumpute_type=cumpute_type)
+        self.log_std = nnx.Param(jnp.ones((action_dim, ), dtype=jnp.float32) * jnp.log(init_std))
+        self.mean_head = nnx.Linear(hidden_dims[-1], action_dim, rngs=rngs, kernel_init=orthogonal(1), dtype=cumpute_type)
         self.policy: GaussianPolicy = GaussianPolicy()
 
 
@@ -43,7 +45,7 @@ class Actor(nnx.Module):
         actions: jax.Array | None = None,
     ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
         x = self(obs, update_rms)
-        mean, log_std = self.mean_head(x), self.log_std.value[None, :]
+        mean, log_std = self.mean_head(x).astype(jnp.float32), self.log_std.value[None, :]
         dist = self.policy.dist(mean, log_std)
         if actions is None:
             actions = dist.sample(seed=key)
@@ -54,7 +56,7 @@ class Actor(nnx.Module):
 
     def get_mean_action(self, obs: jax.Array) -> jax.Array:
         x = self(obs, False)
-        return self.mean_head(x)
+        return self.mean_head(x).astype(jnp.float32)
 
 
 class Critic(nnx.Module):
@@ -63,17 +65,18 @@ class Critic(nnx.Module):
         obs_dim: int,
         hidden_dims: Sequence[int],
         rngs: nnx.Rngs,
-        activation: Callable[[jax.Array], jax.Array]=jax.nn.elu
+        activation: Callable[[jax.Array], jax.Array]=jax.nn.elu,
+        compute_type: Dtype = jnp.float32
     ) -> None:
         self.obs_norm = OnPolicyRMS(obs_dim)
         self.encoder = MLP(obs_dim, hidden_dims, rngs,
-                           activation_fn=activation)
-        self.value_head = nnx.Linear(hidden_dims[-1], 1, rngs=rngs)
+                           activation_fn=activation, compute_type=compute_type)
+        self.value_head = nnx.Linear(hidden_dims[-1], 1, rngs=rngs, dtype=compute_type)
 
     def __call__(self, obs: jax.Array, update_rms: bool = False) -> jax.Array:
         x = self.obs_norm(obs, update_rms)
         x = self.encoder(x)
-        return self.value_head(x)
+        return self.value_head(x).as_type(jnp.float32)
 
 
     def sync_rms(self) -> None:

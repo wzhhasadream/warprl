@@ -1,29 +1,12 @@
-from typing import Protocol
-
 import torch
-from ....buffers.on_policy import RolloutBatch, TorchBuffer
+from ....buffers.on_policy.torch_buffer import TorchBuffer
+from ....buffers.on_policy.types import RolloutBatch
+from ...config.ppo import PPOConfig
 from ....utils import select_actor_observations
 from .network import ActorCritic
 from ....model.torch import Network
 from .utils import adapt_lr, diagonal_gaussian_kl
-
-class PPOConfig(Protocol):
-    algo: str
-    rollout_steps: int
-    num_mini_batches: int
-    num_epochs: int
-    gamma: float
-    gae_lambda: float
-    max_grad_norm: float
-    normalize_advantages: bool
-    asymmetric_obs: bool
-    clip_coef: float
-    value_coef: float
-    entropy_coef: float
-    clip_value: bool
-
-
-
+from torch import nn
 
 @torch.compile(mode="max-autotune")
 def ppo_loss(
@@ -96,12 +79,17 @@ def update_ppo_minibatch(
     batch: RolloutBatch,
     cfg: PPOConfig,
 ) -> dict[str, torch.Tensor]:
-    loss, info = ppo_loss(agent, batch, cfg)
+    with torch.autocast("cuda" if torch.cuda.is_available() else "cpu", dtype=getattr(torch, cfg.compute_type)):
+        loss, info = ppo_loss(agent, batch, cfg)
     info = {key: value.clone() for key, value in info.items()}
     if cfg.algo == "ppo":
         for group in agent.opt.param_groups:
             group["lr"] = adapt_lr(float(group["lr"]), info["training/kl"])
-    agent.grad_step(loss, max_grad_norm=cfg.max_grad_norm)
+    agent.opt.zero_grad()
+    loss.backward()
+    nn.utils.clip_grad_norm_(agent.model.actor.parameters(), cfg.max_grad_norm)
+    nn.utils.clip_grad_norm_(agent.model.critic.parameters(), cfg.max_grad_norm)
+    agent.opt.step()
     return info
 
 
@@ -125,4 +113,4 @@ def update_ppo(
     return {key: torch.stack([info[key] for info in infos]).mean() for key in infos[0]}
 
 
-__all__ = ["PPOConfig", "adapt_lr", "diagonal_gaussian_kl", "update_ppo", "update_ppo_minibatch"]
+__all__ = ["adapt_lr", "diagonal_gaussian_kl", "update_ppo", "update_ppo_minibatch"]
