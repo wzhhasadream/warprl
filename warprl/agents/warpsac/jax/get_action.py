@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 from ....model.jax import RewardNormalizer
-from .warpsac_network import FlashSACActor
+from .network import FlashSACActor
 from .zeta_dist import sample_truncated_zeta
 from ....utils import select_actor_observations
 from ....model.jax import Network

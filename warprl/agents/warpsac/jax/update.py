@@ -8,7 +8,7 @@ from ....model.jax import (
     QuantilePolicy, 
     RewardNormalizer,
 )
-from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
+from .network import FlashSACActor, FlashSACDoubleCritic
 from ....utils import (
     select_actor_observations,
 )

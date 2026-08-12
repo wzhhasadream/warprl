@@ -9,7 +9,7 @@ from ....buffers.off_policy.jax_buffer import JaxBuffer
 from ...config.warpsac import WarpSACConfig
 from ....model.jax import Alpha, Network, RewardNormalizer
 from ...base_agent import OffPolicyAgent
-from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
+from .network import FlashSACActor, FlashSACDoubleCritic
 from gymnasium.vector import VectorEnv
 from .get_action import (
     get_eval_action,

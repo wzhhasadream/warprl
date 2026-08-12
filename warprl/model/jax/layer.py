@@ -1,6 +1,7 @@
 from typing import Callable, Sequence
 from flax import nnx
 import jax
+import jax.numpy as jnp
 from flax.typing import Dtype
 
 def orthogonal(scale: jax.Array = 1):

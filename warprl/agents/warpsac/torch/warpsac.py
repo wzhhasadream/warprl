@@ -14,7 +14,7 @@ from ....model.torch import (
     Network,
     RewardNormalizer,
 )
-from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
+from .network import FlashSACActor, FlashSACDoubleCritic
 from .get_action import (
     get_eval_action,
     get_exploration_action,

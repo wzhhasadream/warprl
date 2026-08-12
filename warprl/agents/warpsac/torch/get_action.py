@@ -1,5 +1,5 @@
 from ....model.torch import RewardNormalizer, Network
-from .warpsac_network import FlashSACActor
+from .network import FlashSACActor
 import torch
 from ....utils import select_actor_observations
 from .zeta_dist import sample_truncated_zeta

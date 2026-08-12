@@ -11,7 +11,7 @@ from ....model.torch import (
     QuantilePolicy,
     RewardNormalizer,
 )
-from .warpsac_network import FlashSACActor, FlashSACDoubleCritic
+from .network import FlashSACActor, FlashSACDoubleCritic
 from ....utils import select_actor_observations
 import torch.utils._pytree as pytree
 
