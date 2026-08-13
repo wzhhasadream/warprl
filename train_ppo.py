@@ -96,7 +96,8 @@ def main() -> None:
     wandb.init(
         project=args.env_type,
         name=args.env_id,
-        config={**vars(args), **agent.observation_debug_info}
+        config={**vars(args), **agent.observation_debug_info},
+        dir="Result/ppo"
     )
 
     obs, _ = train_env.reset(seed=args.seed)

@@ -112,6 +112,7 @@ def main():
         project=args.env_type,
         name=f"{args.env_id}",
         config={**vars(args), **agent.observation_debug_info},
+        dir="Result/warpsac"
     )
 
     def eval_and_log(agent, global_step):
