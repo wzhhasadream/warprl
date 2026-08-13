@@ -148,7 +148,7 @@ class PPOAgent(OnPolicyAgent):
         self.agent.load(Path(checkpoint_dir) / "agent.ckpt")
 
     def save_onnx(self, onnx_dir: str | Path) -> None:
-        self.agent.save_onnx(Path(onnx_dir) / "policy.onnx", [("1", self.actor_observation_dim)])
+        self.agent.save_onnx(Path(onnx_dir) / "policy.onnx", [(1, self.actor_observation_dim)])
 
 
 __all__ = ["PPOAgent", "default_learner_device"]
