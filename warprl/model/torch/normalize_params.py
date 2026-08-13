@@ -41,6 +41,7 @@ def normalize_scale(scale: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
 
 
 @torch.no_grad()
+@torch.compile(mode="max-autotune")
 def project_param(module: nn.Module) -> None:
     """Project all nested linear and affine normalization parameters."""
     norm_types = (

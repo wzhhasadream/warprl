@@ -94,7 +94,6 @@ class Network(nn.Module, Generic[ModelT]):
             self.scheduler.step()
 
 
-    @torch.compile(mode=compile_mode)
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         if self.forward_name is None:
             return self.model(*args, **kwargs)
@@ -102,8 +101,6 @@ class Network(nn.Module, Generic[ModelT]):
 
 
 
-    @torch.no_grad()
-    @torch.compile(mode=compile_mode)
     def project_param(self) -> None:
         project_param(self.model)
 
