@@ -67,10 +67,12 @@ class Args:
     action_repeat: int = 1
     asymmetric_obs: bool = dataclasses.field(init=False, default=False)
     target_entropy: float = dataclasses.field(init=False, default=0.0)
+    render_mode: str | None = dataclasses.field(init=False, default=None)
 
     def __post_init__(self):
         resolve_profile(self)
         self.num_interaction_steps = self.total_timesteps // self.num_envs
+        self.render_mode = "rgb_array" if self.record_video else None
         if self.eval_frequency is None:
             if self.env_type == "isaaclab":
                 self.eval_frequency = max(1, self.num_interaction_steps // 10)
@@ -91,7 +93,6 @@ def main():
     np.random.seed(args.seed)
 
 
-    render_mode = "rgb_array" if args.record_video else None
 
     train_envs, eval_envs, record_envs = create_envs(
         args.env_id,
@@ -100,7 +101,7 @@ def main():
         num_eval_envs=args.num_eval_envs,
         action_repeat=args.action_repeat,
         seed=args.seed,
-        render_mode=render_mode,
+        render_mode=args.render_mode,
     )
     if args.backend == "torch":
         from warprl.agents.warpsac.torch import WarpSACAgent
@@ -114,12 +115,10 @@ def main():
     )
 
     def eval_and_log(agent, global_step):
-        def policy(obs):
-            return agent.get_action(obs)
-        info = evaluate_policy(policy, eval_envs, args.eval_episode, args.env_type)
+        info = evaluate_policy(agent.get_action, eval_envs, args.eval_episode, args.env_type)
         wandb.log(info, global_step)
         if args.record_video:
-            videos = record_video(policy, record_envs, args.env_type)
+            videos = record_video(agent.get_action, record_envs, args.env_type)
             wandb.video(videos, global_step)
         if args.save_agent:
             wandb.save_agent(agent, global_step)

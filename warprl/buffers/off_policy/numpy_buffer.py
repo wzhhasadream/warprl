@@ -212,7 +212,7 @@ class NumpyBuffer(BaseBuffer):
 
     def load(self, path: str) -> None:
         data = np.load(path)
-        for key, value in data:
+        for key, value in data.items():
             setattr(self, key, value)
 
     def __len__(self) -> int:
