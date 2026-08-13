@@ -212,6 +212,6 @@ class WarpSACAgent(OffPolicyAgent):
     def save_onnx(self, onnx_dir: str | Path) -> None:
         onnx_dir = Path(onnx_dir)
         self.actor.save_onnx(
-            onnx_dir / "policy.onnx",
+            Path(onnx_dir) / "policy.onnx",
             [(1, self.actor_observation_dim)],      
         )

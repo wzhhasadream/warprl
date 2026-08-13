@@ -55,13 +55,13 @@ class Args:
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 101
-    actor_normalize_parameters: Literal[True, False] = False
-    critic_normalize_parameters: Literal[True, False] = True
-    normalize_rewards: Literal[True, False] = True
-    use_bias: Literal[True, False] = False
-    record_video: Literal[True, False] = False
-    save_agent: Literal[True, False] = False
-    save_onnx: Literal[True, False] = False
+    actor_normalize_parameters: bool = False
+    critic_normalize_parameters: bool = True
+    normalize_rewards: bool = True
+    use_bias: bool = False
+    record_video: bool = False
+    save_agent: bool = False
+    save_onnx: bool = False
     dist_type: Literal["quantile", "ce", "scalar"] = "ce"
     q_agg: Literal["mean", "min"] = "min"
     action_repeat: int = 1
@@ -112,7 +112,7 @@ def main():
         project=args.env_type,
         name=f"{args.env_id}",
         config={**vars(args), **agent.observation_debug_info},
-        dir="Result/warpsac"
+        dir="Results/warpsac"
     )
 
     def eval_and_log(agent, global_step):

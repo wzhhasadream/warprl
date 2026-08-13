@@ -127,7 +127,7 @@ class PPOAgent(OnPolicyAgent):
 
     def save_onnx(self, onnx_dir: str | Path) -> None:
         self.agent.save_onnx(
-            onnx_dir / "policy.onnx",
+            Path(onnx_dir) / "policy.onnx",
             [("1", self.actor_observation_dim)],
         )
 
