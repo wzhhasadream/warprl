@@ -97,7 +97,7 @@ class PPOAgent(OnPolicyAgent):
 
     def get_action(self, observations: jax.Array | np.ndarray) -> np.ndarray:
         actions = self._get_eval_action_fn(self._observations(observations))
-        return np.asarray(actions).reshape((-1, *self.action_shape))
+        return np.asarray(actions)
 
     def get_exploration_action(
         self, observations: jax.Array | np.ndarray
@@ -132,7 +132,6 @@ class PPOAgent(OnPolicyAgent):
         return bool(self.replay_buffer.full and self.replay_buffer.returns_ready)
 
     def update(self, last_observations: jax.Array | np.ndarray) -> dict[str, float]:
-        assert self.can_update, ""
         self._update_key, update_key = jax.random.split(self._update_key)
         info = self._update_fn(
             self.replay_buffer,

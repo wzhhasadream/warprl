@@ -19,9 +19,9 @@ import tqdm
 class Args:
     profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'sim2real'] = "auto"
 
-    env_id: str = "humanoid-run"
+    env_id: str = "Hopper-v4"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'dmc'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'mujoco'
 
     seed: int = 1
     backend: Literal["torch", "jax"] = "jax"

@@ -25,6 +25,8 @@ class PPOConfig(Protocol):
     clip_value: bool
     init_std: float
     compute_type: Literal["float32", "bfloat16"]
+    asymmetric_obs: bool
+    init_std: float
 
 
 PPO_PROFILE_DEFAULTS = {
@@ -51,7 +53,7 @@ PPO_PROFILE_DEFAULTS = {
 }
 
 
-def resolve_ppo_profile(args: Any) -> Any:
+def resolve_profile(args: Any) -> Any:
     """Fill unset PPO runtime fields from the selected profile."""
     profile = args.profile
     if profile == "auto":
@@ -61,8 +63,6 @@ def resolve_ppo_profile(args: Any) -> Any:
             "dmc",
             "humanoid_bench",
         } else "gpu_sim"
-    elif profile in {"playground", "maniskill", "isaaclab", "mjlab", "sim2real"}:
-        profile = "gpu_sim"
 
     if profile not in PPO_PROFILE_DEFAULTS:
         raise ValueError(
@@ -76,4 +76,4 @@ def resolve_ppo_profile(args: Any) -> Any:
     return args
 
 
-__all__ = ["PPOConfig", "PPO_PROFILE_DEFAULTS", "resolve_ppo_profile"]
+__all__ = ["PPOConfig", "PPO_PROFILE_DEFAULTS", "resolve_profile"]

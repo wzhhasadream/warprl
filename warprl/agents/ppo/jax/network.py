@@ -6,7 +6,7 @@ from ....model.jax.policy import GaussianPolicy
 import jax.numpy as jnp
 from ....model.jax.layer import orthogonal
 from flax.typing import Dtype
-
+import math
 class Actor(nnx.Module):
     def __init__(
         self,
@@ -28,7 +28,7 @@ class Actor(nnx.Module):
             activation_fn=activation,
             compute_type=compute_type,
         )
-        self.log_std = nnx.Param(jnp.ones((action_dim, ), dtype=jnp.float32) * jnp.log(init_std))
+        self.log_std = nnx.Param(jnp.ones((action_dim, ), dtype=jnp.float32) * math.log(init_std))
         self.mean_head = nnx.Linear(
             hidden_dims[-1],
             action_dim,

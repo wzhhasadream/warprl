@@ -37,6 +37,7 @@ class PPOAgent(OnPolicyAgent):
                 self.action_dim,
                 self.cfg.actor_hidden_dims,
                 activation,
+                init_std=self.cfg.init_std
             ),
             Critic(
                 self.critic_observation_dim,
@@ -72,7 +73,7 @@ class PPOAgent(OnPolicyAgent):
             self.asymmetric_obs,
             self._observations(observations),
         )
-        return self._numpy(actions).reshape(-1, *self.action_shape)
+        return self._numpy(actions)
 
     def get_exploration_action(
         self, observations: np.ndarray | torch.Tensor
@@ -92,11 +93,11 @@ class PPOAgent(OnPolicyAgent):
             self._observations(observations),
         )
         return (
-            self._numpy(actions).reshape(-1, *self.action_shape),
+            self._numpy(actions),
             self._numpy(values),
             self._numpy(log_probs),
-            self._numpy(action_means).reshape(-1, *self.action_shape),
-            self._numpy(action_stds).reshape(-1, *self.action_shape),
+            self._numpy(action_means),
+            self._numpy(action_stds),
         )
 
     def process_transition(self, transition: RolloutTransition) -> None:

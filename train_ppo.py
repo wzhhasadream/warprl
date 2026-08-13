@@ -18,11 +18,11 @@ import dataclasses
 
 @dataclass
 class Args:
-    profile: Literal["auto", "cpu_sim", "playground", "maniskill", 'isaaclab', 'mjlab', 'sim2real'] = "auto"
+    profile: Literal["auto", "cpu_sim", "gpu_sim"] = "auto"
 
-    env_id: str = "humanoid-run"
+    env_id: str = "Hopper-v4"
     env_type: Literal['mujoco', 'myosuite', 'dmc',
-                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'dmc'
+                      'humanoid_bench', 'playground', 'maniskill', 'isaaclab', 'mjlab'] = 'mujoco'
     backend: Literal["jax", "torch"] = "torch"
     algo: Literal["ppo", "spo"] = "ppo"
     seed: int = 0
@@ -31,12 +31,12 @@ class Args:
     num_eval_envs: int | None = None
     eval_episode: int | None = None
     compute_type: Literal["float32", "bfloat16"] | None = None
-    init_std: float | None = None
     total_timesteps: int | None = None
     rollout_steps: int | None = None
     num_mini_batches: int | None = None
     num_epochs: int | None = None
     ##########################################################
+    init_std: float = 1
     action_repeat: int = 1
     gamma: float = 0.99
     gae_lambda: float = 0.95
@@ -57,11 +57,12 @@ class Args:
     eval_frequency: int | None = None
     log_frequency: int | None = None
     num_rollout: int | None = None
-    render_mode: str | None = None
-
+    render_mode: str | None = dataclasses.field(init=False, default=None)
     asymmetric_obs: bool = dataclasses.field(init=False, default=False)
 
     def __post_init__(self):
+        from warprl.agents.config.ppo import resolve_profile
+        resolve_profile(self)
         self.num_rollout = self.total_timesteps // (self.num_envs * self.rollout_steps)
 
         self.render_mode = "rgb_array" if self.record_video else None
