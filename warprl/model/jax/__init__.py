@@ -36,7 +36,7 @@ class Network(nnx.Module, Generic[ModelT]):
     def grad_step(self, grads: nnx.State, max_grad_norm: float | None = None):
         if self.opt is not None:
             if max_grad_norm is not None:
-                grads = clip_grads(grads)
+                grads = clip_grads(grads, max_grad_norm)
             self.opt.update(grads)
 
     def soft_update(self) -> None:

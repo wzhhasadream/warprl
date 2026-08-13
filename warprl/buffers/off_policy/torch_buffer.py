@@ -228,12 +228,12 @@ class TorchBuffer(BaseBuffer):
     def save(self, path: str) -> None:
         torch.save(
             {
-                "observations": self.obsverations[:self.size],
+                "obsverations": self.obsverations[:self.size],
                 "actions": self.actions[:self.size],
                 "rewards": self.rewards[:self.size],
                 "terminations": self.terminations[:self.size],
                 "truncations": self.trunactions[:self.size],
-                "next_observations": self.next_obsverations[:self.size],
+                "next_obsverations": self.next_obsverations[:self.size],
                 "discounts": self.discounts[:self.size],
             },
             path,

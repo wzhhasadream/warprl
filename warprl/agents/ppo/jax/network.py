@@ -16,15 +16,26 @@ class Actor(nnx.Module):
         rngs: nnx.Rngs,
         activation: Callable[[jax.Array], jax.Array] = jax.nn.elu,
         init_std: float = 1,
-        cumpute_type: Dtype = jnp.float32
+        compute_type: Dtype = jnp.float32,
     ) -> None:
 
         self.obs_dim = obs_dim
         self.obs_norm = OnPolicyRMS(obs_dim)
-        self.encoder = MLP(obs_dim, hidden_dims, rngs,
-                           activation_fn=activation, cumpute_type=cumpute_type)
+        self.encoder = MLP(
+            obs_dim,
+            hidden_dims,
+            rngs,
+            activation_fn=activation,
+            compute_type=compute_type,
+        )
         self.log_std = nnx.Param(jnp.ones((action_dim, ), dtype=jnp.float32) * jnp.log(init_std))
-        self.mean_head = nnx.Linear(hidden_dims[-1], action_dim, rngs=rngs, kernel_init=orthogonal(1), dtype=cumpute_type)
+        self.mean_head = nnx.Linear(
+            hidden_dims[-1],
+            action_dim,
+            rngs=rngs,
+            kernel_init=orthogonal(1),
+            dtype=compute_type,
+        )
         self.policy: GaussianPolicy = GaussianPolicy()
 
 
@@ -76,7 +87,7 @@ class Critic(nnx.Module):
     def __call__(self, obs: jax.Array, update_rms: bool = False) -> jax.Array:
         x = self.obs_norm(obs, update_rms)
         x = self.encoder(x)
-        return self.value_head(x).as_type(jnp.float32)
+        return self.value_head(x).astype(jnp.float32)
 
 
     def sync_rms(self) -> None:

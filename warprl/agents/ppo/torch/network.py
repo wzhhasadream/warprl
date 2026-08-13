@@ -3,7 +3,7 @@ from collections.abc import Callable, Sequence
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import math
 from ....model.torch import Linear, MLP, OnPolicyRMS
 from ....model.torch.policy import GaussianPolicy
 
@@ -26,7 +26,7 @@ class Actor(nn.Module):
             layer_norm=True,
             activation_fn=activation,
         )
-        self.log_std = nn.Parameter(torch.ones(action_dim) * torch.log(init_std))
+        self.log_std = nn.Parameter(torch.ones(action_dim) * math.log(init_std))
         self.mean_head = Linear(hidden_dims[-1], action_dim)
         self.policy = GaussianPolicy()
 

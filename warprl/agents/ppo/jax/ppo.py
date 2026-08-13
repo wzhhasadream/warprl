@@ -41,12 +41,25 @@ class PPOAgent(OnPolicyAgent):
 
     def _init_train_state(self) -> None:
         optimizer = optax.inject_hyperparams(optax.adam)(learning_rate=self.cfg.lr)
-        
-
+        compute_type = getattr(jnp, self.cfg.compute_type)
         rngs = nnx.Rngs(self.cfg.seed)
         model = ActorCritic(
-            Actor(self.actor_observation_dim, self.action_dim, self.cfg.actor_hidden_dims, rngs, getattr(jax.nn, self.cfg.activation), init_std=self.cfg.init_std, compute_type=self.cfg.compute_type),
-            Critic(self.critic_observation_dim, self.cfg.critic_hidden_dims, rngs, getattr(jax.nn, self.cfg.activation), compute_type=self.cfg.compute_type),
+            Actor(
+                self.actor_observation_dim,
+                self.action_dim,
+                self.cfg.actor_hidden_dims,
+                rngs,
+                getattr(jax.nn, self.cfg.activation),
+                init_std=self.cfg.init_std,
+                compute_type=compute_type,
+            ),
+            Critic(
+                self.critic_observation_dim,
+                self.cfg.critic_hidden_dims,
+                rngs,
+                getattr(jax.nn, self.cfg.activation),
+                compute_type=compute_type,
+            ),
         )
         self.agent = Network(
             model,
@@ -116,7 +129,7 @@ class PPOAgent(OnPolicyAgent):
 
     @property
     def can_update(self) -> bool:
-        return bool(self.replay_buffer.full)
+        return bool(self.replay_buffer.full and self.replay_buffer.returns_ready)
 
     def update(self, last_observations: jax.Array | np.ndarray) -> dict[str, float]:
         assert self.can_update, ""

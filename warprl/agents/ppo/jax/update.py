@@ -97,7 +97,7 @@ def update_ppo_minibatch(
             lr,
             info["training/kl"]
         )
-        agent.opt.opt_state[1].hyperparams["learning_rate"].value = lr
+        agent.opt.opt_state.hyperparams["learning_rate"].value = lr
     grads["actor"] = clip_grads(grads["actor"], cfg.max_grad_norm)
     grads["critic"] = clip_grads(grads["critic"], cfg.max_grad_norm)
     agent.grad_step(grads)

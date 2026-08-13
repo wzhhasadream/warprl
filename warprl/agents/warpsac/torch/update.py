@@ -14,7 +14,7 @@ from ....model.torch import (
 from .network import FlashSACActor, FlashSACDoubleCritic
 from ....utils import select_actor_observations
 import torch.utils._pytree as pytree
-
+from typing import Literal
 
 compile_mode = "max-autotune"
 def _scalar_loss(
