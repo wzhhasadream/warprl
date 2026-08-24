@@ -59,7 +59,7 @@ DMC_HARD = [
 ]
 
 
-# mjlab requires MuJoCo 3.10.0, but the dm_control named-index schema still
+# mjlab requires MuJoCo 3.5.0, but the dm_control named-index schema still
 # references fields removed from newer MuJoCo builds. Keep the mjlab-compatible
 # MuJoCo version and filter only unavailable indexing fields before loading DMC.
 @lru_cache(maxsize=1)
