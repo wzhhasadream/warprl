@@ -41,7 +41,6 @@ class Args:
     num_eval_envs: int | None = None
     actor_normalize_parameters: bool | None = None       # Recommended: disable for GPU-parallel simulation.
     critic_normalize_parameters: bool | None = None       # Recommended: disable for GPU-parallel simulation.
-     # Recommended: disable for GPU-parallel simulation.
     #######################################################
     eval_frequency: int | None = None
     log_frequency: int | None = None
