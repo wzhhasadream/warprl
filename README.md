@@ -1,14 +1,13 @@
-# WarpSAC
-
-## Towards the Pinnacle of Scalable Off-Policy Reinforcement Learning by Rethinking Exploration and Exploitation
+# WarpSAC: Towards the Pinnacle of Scalable Off-Policy Reinforcement Learning by Rethinking Exploration and Exploitation
 
 This repository contains the official implementation of WarpSAC, together with the training scripts and environment integrations used in our experiments. WarpSAC extends FlashSAC with regime-aware replay and stabilization choices, improving sample efficiency and training wall-clock efficiency in the evaluated settings.
 
 ## Demonstrations
 
-<video controls muted loop playsinline width="720">
-  <source src="./assets/warpsac.mp4" type="video/mp4">
-  Your browser does not support embedded video. [Download the WarpSAC demo](./assets/warpsac.mp4).
+[Open the WarpSAC demo video](https://github.com/wzhhasadream/warprl/raw/refs/heads/main/assets/warpsac.mp4)
+
+<video controls muted loop playsinline width="720" src="https://github.com/wzhhasadream/warprl/raw/refs/heads/main/assets/warpsac.mp4">
+  Your browser does not support embedded video. Use the link above.
 </video>
 
 
@@ -102,4 +101,3 @@ The main controls that distinguish the WarpSAC sampling and normalization regime
 ```
 
 `decay_step=0` disables the decay-based sampling bias and recovers uniform replay. Parameter normalization is enabled by default; for large GPU-parallel simulations, disabling actor and critic parameter normalization is recommended unless the experiment requires otherwise.
-
