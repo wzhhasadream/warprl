@@ -61,6 +61,8 @@ PROFILE_DEFAULTS = {
         buffer_device="cpu",
         eval_episode=50,
         num_eval_envs=1,
+        actor_normalize_parameters=True,
+        critic_normalize_parameters=True
     ),
     "playground": dict(
         num_envs=1024,
@@ -76,6 +78,8 @@ PROFILE_DEFAULTS = {
         buffer_device="cuda",
         eval_episode=50,
         num_eval_envs=50,
+        actor_normalize_parameters=False,
+        critic_normalize_parameters=False
     ),
     "maniskill": dict(
         num_envs=1024,
@@ -91,6 +95,8 @@ PROFILE_DEFAULTS = {
         buffer_device="cuda",
         eval_episode=50,
         num_eval_envs=50,
+        actor_normalize_parameters=False,
+        critic_normalize_parameters=False
     ),
     "isaaclab": dict(
         num_envs=1024,
@@ -106,6 +112,8 @@ PROFILE_DEFAULTS = {
         buffer_device="cuda",
         eval_episode=1024,
         num_eval_envs=1024,
+        actor_normalize_parameters=False,
+        critic_normalize_parameters=False
     ),
     "mjlab": dict(
         num_envs=1024,
@@ -121,6 +129,8 @@ PROFILE_DEFAULTS = {
         buffer_device="cuda",
         eval_episode=50,
         num_eval_envs=50,
+        actor_normalize_parameters=False,
+        critic_normalize_parameters=False
     ),
     "sim2real": dict(
         num_envs=1024,
@@ -136,6 +146,8 @@ PROFILE_DEFAULTS = {
         buffer_device="cuda",
         eval_episode=50,
         num_eval_envs=50,
+        actor_normalize_parameters=False,
+        critic_normalize_parameters=False
     ),
 }
 

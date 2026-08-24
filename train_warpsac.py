@@ -39,6 +39,9 @@ class Args:
     buffer_device: Literal["cpu", "cuda"] | None = None
     eval_episode: int | None = None
     num_eval_envs: int | None = None
+    actor_normalize_parameters: bool | None = None       # Recommended: disable for GPU-parallel simulation.
+    critic_normalize_parameters: bool | None = None       # Recommended: disable for GPU-parallel simulation.
+     # Recommended: disable for GPU-parallel simulation.
     #######################################################
     eval_frequency: int | None = None
     log_frequency: int | None = None
@@ -55,15 +58,13 @@ class Args:
     actor_num_blocks: int = 2
     num_q: int = 2
     num_head: int = 101
-    actor_normalize_parameters: bool = False
-    critic_normalize_parameters: bool = True
     normalize_rewards: bool = True
     use_bias: bool = False
     record_video: bool = False
     save_agent: bool = False
     save_onnx: bool = False
     dist_type: Literal["quantile", "ce", "scalar"] = "ce"
-    q_agg: Literal["mean", "min"] = "min"
+    q_agg: Literal["mean", "min"] = "min"    # FastSAC favors "mean" in some settings, but this does not transfer reliably to FlashSAC.
     action_repeat: int = 1
     asymmetric_obs: bool = dataclasses.field(init=False, default=False)
     target_entropy: float = dataclasses.field(init=False, default=0.0)
