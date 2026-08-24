@@ -3,7 +3,6 @@ from typing import Literal
 
 import numpy as np
 import tyro
-
 import warprl.utils.logger as wandb
 from warprl.envs import create_envs
 from warprl.buffers.on_policy.types import RolloutTransition

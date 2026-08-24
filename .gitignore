@@ -23,7 +23,6 @@ venv/
 .ipynb_checkpoints/
 
 # Experiment outputs / logs
-Results/
 wandb/
 *.log
 
