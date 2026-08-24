@@ -4,12 +4,20 @@ This repository contains the official implementation of WarpSAC, together with t
 
 ## Demonstrations
 
+<<<<<<< HEAD
 [Open the WarpSAC demo video](https://github.com/user-attachments/assets/0dccd420-ed34-48cd-95bf-ebf9b65c6350)
+=======
+>>>>>>> d08e2cbd7b77800ee308110177c9e9b57b095041
 
 <video controls muted loop playsinline width="720" src="https://github.com/user-attachments/assets/0dccd420-ed34-48cd-95bf-ebf9b65c6350">
   Your browser does not support embedded video. Use the link above.
 </video>
 
+<<<<<<< HEAD
+=======
+![WarpSAC demo video](https://github.com/user-attachments/assets/c490a83b-5bf3-4bd8-b468-041765a7983a)
+
+>>>>>>> d08e2cbd7b77800ee308110177c9e9b57b095041
 ![Unitree G1 sim-to-real learning curves](./assets/unitree_g1_flat_learning_curves.png)
 
 The framework supports JAX and PyTorch backends. The reported WarpSAC results use the JAX backend. The PPO implementation uses the PyTorch backend with mixed-precision execution and `torch.compile`; this is an optimized implementation built on top of the RSL-RL training pipeline, whose standard configuration does not provide these two optimizations.
