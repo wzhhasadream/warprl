@@ -4,12 +4,11 @@ This repository contains the official implementation of WarpSAC, together with t
 
 ## Demonstrations
 
-[Open the WarpSAC demo video](./assets/warpsac.mp4)
+[Open the WarpSAC demo video](https://github.com/user-attachments/assets/0dccd420-ed34-48cd-95bf-ebf9b65c6350)
 
-<video controls muted loop playsinline width="720" src="./assets/warpsac.mp4">
+<video controls muted loop playsinline width="720" src="https://github.com/user-attachments/assets/0dccd420-ed34-48cd-95bf-ebf9b65c6350">
   Your browser does not support embedded video. Use the link above.
 </video>
-
 
 ![Unitree G1 sim-to-real learning curves](./assets/unitree_g1_flat_learning_curves.png)
 
