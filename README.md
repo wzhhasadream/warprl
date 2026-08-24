@@ -4,9 +4,9 @@ This repository contains the official implementation of WarpSAC, together with t
 
 ## Demonstrations
 
-[Open the WarpSAC demo video](https://github.com/wzhhasadream/warprl/raw/refs/heads/main/assets/warpsac.mp4)
+[Open the WarpSAC demo video](./assets/warpsac.mp4)
 
-<video controls muted loop playsinline width="720" src="https://github.com/wzhhasadream/warprl/raw/refs/heads/main/assets/warpsac.mp4">
+<video controls muted loop playsinline width="720" src="./assets/warpsac.mp4">
   Your browser does not support embedded video. Use the link above.
 </video>
 
