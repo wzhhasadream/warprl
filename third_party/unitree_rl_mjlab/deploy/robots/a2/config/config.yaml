@@ -1,0 +1,30 @@
+FSM:
+  _: # enabled fsms
+    Passive:
+      id: 1
+    FixStand:
+      id: 2
+    Velocity:
+      id: 3
+      type: RLBase
+  Passive:
+    transitions: 
+      FixStand: LT + up.on_pressed
+    mode: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    kd: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
+  FixStand:
+    transitions: 
+      Passive: LT + B.on_pressed
+      Velocity: RT + A.on_pressed
+    kp: [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200]
+    kd: [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
+    ts: [0, 1, 2]
+    qs: [
+      [],
+      [0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65],
+      [0., 0.8, -1.5, 0., 0.8, -1.5, 0., 0.8, -1.5, 0., 0.8, -1.5],
+    ]
+  Velocity:
+    transitions: 
+      Passive: LT + B.on_pressed
+    policy_dir: config/policy/velocity

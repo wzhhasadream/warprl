@@ -1,0 +1,2 @@
+mjlab==1.2.0
+mujoco-warp==3.5.0
