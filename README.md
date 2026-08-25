@@ -2,7 +2,10 @@
 
 This repository contains the official implementation of WarpSAC, together with the training scripts and environment integrations used in our experiments. WarpSAC extends FlashSAC with regime-aware replay and stabilization choices, improving sample efficiency and training wall-clock efficiency in the evaluated settings.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Project Page](https://img.shields.io/badge/Project-Page-2ea44f)](https://wzhhasadream.github.io/WarpSAC)
+
+We thank [Holiday Robotics](https://github.com/Holiday-Robot/FlashSAC) for providing the FlashSAC code used in this project.
 
 ## Demonstrations
 
