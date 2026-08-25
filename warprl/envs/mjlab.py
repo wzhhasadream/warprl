@@ -121,10 +121,6 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
         self.num_envs = num_envs
         self._configure_spaces()
 
-        # Episode return/length tracking for training-time logging
-        self._ep_returns = np.zeros(num_envs, dtype=np.float32)
-        self._ep_lengths = np.zeros(num_envs, dtype=np.int32)
-
     def _configure_spaces(self) -> None:
         """Configure the flattened observation and action spaces."""
         spaces = self._env.single_observation_space.spaces
@@ -197,8 +193,6 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
         options: dict[str, Any] | None = None,
     ) -> tuple[Union[F32NDArray, torch.Tensor], dict[str, Any]]:
         obs_dict, _ = self._env.reset()
-        self._ep_returns[:] = 0.0
-        self._ep_lengths[:] = 0
         env_info: dict[str, Any] = {
             "actor_observation_size": self.actor_observation_size,
             "asymmetric_obs": self.asymmetric_obs,
@@ -226,8 +220,6 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
         rewards_np = np.asarray(
             recursive_to_numpy(rewards), dtype=np.float32
         )
-        self._ep_returns += rewards_np
-        self._ep_lengths += 1
 
         # Capture terminal obs BEFORE resetting done envs
         terminal_obs = self._flatten_obs(obs_dict)
@@ -249,20 +241,12 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
             "asymmetric_obs": self.asymmetric_obs,
         }
 
-        # Emit episode return/length for done envs, merged with mjlab's per-reward-term extras
-        done_ids_np = np.asarray(recursive_to_numpy(done_ids))
+        # Preserve mjlab's per-reward-term logs; eval_env owns episode return/length statistics.
         raw_log = extras.get("log") or {}
         episode_info: dict[str, Any] = {
             k: float(v.mean().item()) if isinstance(v, torch.Tensor) else v
             for k, v in raw_log.items()
         }
-        if len(done_ids_np) > 0:
-            episode_info["episode_rewards"] = float(
-                self._ep_returns[done_ids_np].mean())
-            episode_info["episode_length"] = float(
-                self._ep_lengths[done_ids_np].mean())
-            self._ep_returns[done_ids_np] = 0.0
-            self._ep_lengths[done_ids_np] = 0
         if episode_info:
             infos["episode_info"] = episode_info
 
@@ -294,30 +278,6 @@ class MjlabVectorEnv(VectorEnv[F32NDArray, F32NDArray, F32NDArray]):
         image = self._env.render()
         return None if image is None else [image]
 
-    @classmethod
-    def from_env(
-        cls,
-        env: Any,
-        to_numpy: bool = True,
-    ) -> "MjlabVectorEnv":
-        """Wrap an already-created ManagerBasedRlEnv.
-
-        Disables auto_reset on the env so terminal obs can be captured before
-        the env resets done workers (required for correct off-policy bootstrapping).
-        """
-        env.cfg.auto_reset = False
-
-        instance = cls.__new__(cls)
-        instance._env = env
-        instance._device = str(env.device)
-        instance._to_numpy = to_numpy
-        instance.render_mode = getattr(env, "render_mode", None)
-        instance.num_envs = env.num_envs
-        instance._configure_spaces()
-        instance._ep_returns = np.zeros(env.num_envs, dtype=np.float32)
-        instance._ep_lengths = np.zeros(env.num_envs, dtype=np.int32)
-
-        return instance
 
 
 def make_mjlab_env(
