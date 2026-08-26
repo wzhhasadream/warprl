@@ -3,6 +3,7 @@
 This repository contains the official implementation of WarpSAC, together with the training scripts and environment integrations used in our experiments. WarpSAC extends FlashSAC with regime-aware replay and stabilization choices, improving sample efficiency and training wall-clock efficiency in the evaluated settings.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![arXiv](https://img.shields.io/badge/arXiv-2608.24479-b31b1b.svg)](https://arxiv.org/abs/2608.24479)
 [![Project Page](https://img.shields.io/badge/Project-Page-2ea44f)](https://wzhhasadream.github.io/WarpSAC)
 
 We thank [Holiday Robotics](https://github.com/Holiday-Robot/FlashSAC) for providing the FlashSAC code used in this project.
@@ -103,3 +104,17 @@ The main controls that distinguish the WarpSAC sampling and normalization regime
 ```
 
 `decay_step=0` disables the decay-based sampling bias and recovers uniform replay. Parameter normalization is enabled by default; for large GPU-parallel simulations, disabling actor and critic parameter normalization is recommended unless the experiment requires otherwise.
+
+## Citation
+
+If WarpSAC is useful in your research, please cite:
+
+```bibtex
+@article{wu2026warpsac,
+  title         = {WarpSAC: Towards the Pinnacle of Scalable Off-policy Reinforcement Learning by Rethinking Exploration and Exploitation},
+  author        = {Wu, Zihao and Tang, Hongyao and Ma, Yi and Song, Huizhong and Li, Pengyi and Yuan, Yifu and Ni, Fei and Liu, Jinyi and Wei, Wei and Wang, Jianrong and Zheng, Yan and Hao, Jianye},
+  journal       = {arXiv preprint arXiv:2608.24479},
+  year          = {2026},
+  url           = {https://arxiv.org/abs/2608.24479}
+}
+```
