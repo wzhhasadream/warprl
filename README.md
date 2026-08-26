@@ -110,11 +110,13 @@ The main controls that distinguish the WarpSAC sampling and normalization regime
 If WarpSAC is useful in your research, please cite:
 
 ```bibtex
-@article{wu2026warpsac,
-  title         = {WarpSAC: Towards the Pinnacle of Scalable Off-policy Reinforcement Learning by Rethinking Exploration and Exploitation},
-  author        = {Wu, Zihao and Tang, Hongyao and Ma, Yi and Song, Huizhong and Li, Pengyi and Yuan, Yifu and Ni, Fei and Liu, Jinyi and Wei, Wei and Wang, Jianrong and Zheng, Yan and Hao, Jianye},
-  journal       = {arXiv preprint arXiv:2608.24479},
-  year          = {2026},
-  url           = {https://arxiv.org/abs/2608.24479}
+@misc{wu2026warpsacpinnaclescalableoffpolicy,
+      title={WarpSAC: Towards the Pinnacle of Scalable Off-policy RL by Rethinking Exploration and Exploitation}, 
+      author={Zihao Wu and Hongyao Tang and Yi Ma and Huizhong Song and Pengyi Li and Yifu Yuan and Fei Ni and Jinyi Liu and Wei Wei and Jianrong Wang and Yan Zheng and Jianye Hao},
+      year={2026},
+      eprint={2608.24479},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2608.24479}, 
 }
 ```
