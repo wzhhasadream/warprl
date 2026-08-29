@@ -80,6 +80,14 @@ class BaseAgent(ABC):
 
 class OnPolicyAgent(BaseAgent):
     @abstractmethod
+    def sample_action_and_value(self, observation: Tensor) -> tuple[Tensor, ...]:
+        pass
+
+    @abstractmethod
+    def get_value(self, observation: Tensor) -> Tensor:
+        pass
+
+    @abstractmethod
     def process_transition(self, transition: RolloutTransition) -> None:
         pass
 
