@@ -66,7 +66,7 @@ class TorchBuffer(BaseBuffer):
         self.actions = torch.empty((self.max_size, *self.action_shape), dtype=action_dtype, device=self.device)
         self.rewards = torch.empty((self.max_size,), dtype=torch.float32, device=self.device)
         self.terminations = torch.empty((self.max_size,), dtype=torch.float32, device=self.device)
-        self.trunactions = torch.empty((self.max_size,), dtype=torch.float32, device=self.device)
+        self.truncations = torch.empty((self.max_size,), dtype=torch.float32, device=self.device)
         self.discounts = torch.empty((self.max_size,), dtype=torch.float32, device=self.device)
         self.deque: deque[Transition] = deque(maxlen=self.n_step)
         self.ptr = 0
@@ -131,7 +131,7 @@ class TorchBuffer(BaseBuffer):
         self.actions[add_indices] = transition.actions
         self.rewards[add_indices] = transition.rewards
         self.terminations[add_indices] = transition.terminations
-        self.trunactions[add_indices] = transition.truncations
+        self.truncations[add_indices] = transition.truncations
         self.next_obsverations[add_indices] = transition.next_observations
         self.discounts[add_indices] = discount
 
@@ -232,7 +232,7 @@ class TorchBuffer(BaseBuffer):
                 "actions": self.actions[:self.size],
                 "rewards": self.rewards[:self.size],
                 "terminations": self.terminations[:self.size],
-                "truncations": self.trunactions[:self.size],
+                "truncations": self.truncations[:self.size],
                 "next_obsverations": self.next_obsverations[:self.size],
                 "discounts": self.discounts[:self.size],
             },

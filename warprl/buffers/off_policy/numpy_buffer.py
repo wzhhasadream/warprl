@@ -39,7 +39,7 @@ class NumpyBuffer(BaseBuffer):
         self.actions = np.empty((self.max_size, * self.action_shape), dtype=self.action_space.dtype)
         self.rewards = np.empty((self.max_size, ), dtype=np.float32)
         self.terminations = np.empty((self.max_size, ), dtype=np.float32)
-        self.trunactions = np.empty((self.max_size, ), dtype=np.float32)
+        self.truncations = np.empty((self.max_size, ), dtype=np.float32)
         self.discounts = np.empty((self.max_size, ), dtype=np.float32)
         self.deque = deque(maxlen=self.n_step)
         self.ptr = 0
@@ -105,7 +105,7 @@ class NumpyBuffer(BaseBuffer):
         self.actions[add_indices] = transition.actions
         self.rewards[add_indices] = transition.rewards
         self.terminations[add_indices] = transition.terminations
-        self.trunactions[add_indices] = transition.truncations
+        self.truncations[add_indices] = transition.truncations
         self.next_obsverations[add_indices] = transition.next_observations
         self.discounts[add_indices] = discount
 
@@ -205,7 +205,7 @@ class NumpyBuffer(BaseBuffer):
             actions=self.actions[:self.size],
             rewards=self.rewards[:self.size],
             terminations=self.terminations[:self.size],
-            truncations=self.trunactions[:self.size],
+            truncations=self.truncations[:self.size],
             next_obsverations=self.next_obsverations[:self.size],
             discounts=self.discounts[:self.size],
         )
