@@ -262,6 +262,16 @@ def log(data: Dict[str, Union[float, int]], step: Optional[int] = None, commit: 
     _current_run.log(data, step, commit)
 
 
+def get_run_dir() -> str:
+    if _current_run is None:
+        raise RuntimeError("No active run. Call init() first.")
+    return _current_run.run_dir
+
+
+def has_active_run() -> bool:
+    return _current_run is not None
+
+
 def video(videos: np.ndarray, step: int, fps: int = 30, fmt: str = "mp4"):
     if _current_run is None:
         raise RuntimeError("No active run. Call init() first.")

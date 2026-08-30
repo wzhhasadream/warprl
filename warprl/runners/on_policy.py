@@ -46,9 +46,19 @@ class OnPolicyRunner:
         self.num_log = max(1, self.num_rollout // run_cfg.num_log)
         self.num_eval = max(1, self.num_rollout // run_cfg.num_eval)
 
+        logger.init(
+            project=self.project,
+            name=self.run_name,
+            config={**vars(agent.cfg), **self.agent.observation_debug_info},
+            dir=self.results_dir,
+        )
     @property
     def total_timesteps(self) -> int:
         return self.run_cfg.total_timesteps
+
+    @property
+    def log_dir(self) -> str | None:
+        return logger.get_run_dir() if logger.has_active_run() else None
 
     def _log_evaluation(self, rollout_idx: int) -> None:
         global_step = rollout_idx * self.train_envs.num_envs * self.run_cfg.rollout_steps
@@ -85,13 +95,6 @@ class OnPolicyRunner:
 
     def run(self) -> None:
         np.random.seed(self.env_cfg.seed)
-        config = self.agent.cfg
-        logger.init(
-            project=self.project,
-            name=self.run_name,
-            config={**vars(config), **self.agent.observation_debug_info},
-            dir=self.results_dir,
-        )
 
         try:
             self._log_evaluation(0)
