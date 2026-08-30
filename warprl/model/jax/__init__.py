@@ -53,7 +53,7 @@ class Network(nnx.Module, Generic[ModelT]):
 
     def save(self, checkpoint_dir: str | Path) -> None:
         """Save parameters and optimizer state to an Orbax checkpoint."""
-        checkpoint_dir = Path(checkpoint_dir)
+        checkpoint_dir = Path(checkpoint_dir).absolute()
         # Orbax checkpoints are directories, even when named with a .ckpt suffix.
         checkpoint_dir.parent.mkdir(parents=True, exist_ok=True)
         objects = (self.model, self.opt)
