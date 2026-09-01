@@ -1,0 +1,89 @@
+FSM:
+  _: # enabled fsms
+    Passive:
+      id: 1
+    FixStand:
+      id: 2
+    Velocity:
+      id: 3
+      type: RLBase
+
+    Mimic_Dance_102: # uncomment to enable
+      id: 101
+      type: Mimic
+    Mimic_Gangnam_Style:
+      id: 102
+      type: Mimic
+
+  Passive:
+    transitions: 
+      FixStand: LT + up.on_pressed
+    mode: [
+      1,1,1,1,1,1,
+      1,1,1,1,1,1,
+      1,1,1,
+      1,1,1,1,1,1,1,
+      1,1,1,1,1,1,1,
+    ]
+    kd: [
+      3,3,3,3,3,3,
+      3,3,3,3,3,3,
+      3,3,3,
+      3,3,3,3,3,3,3,  
+      3,3,3,3,3,3,3,  
+    ]
+  FixStand:
+    transitions: 
+      Passive: LT + B.on_pressed
+      Velocity: RB + X.on_pressed
+    kp: [
+      100., 100., 100., 150., 40., 40.,
+      100., 100., 100., 150., 40., 40.,
+      200,200,200,
+      40,40,40,40,40,40,40,
+      40,40,40,40,40,40,40,
+    ]
+    kd: [
+      2,2,2,4,2,2,
+      2,2,2,4,2,2,
+      5,5,5,
+      10,10,10,10,10,10,10,
+      10,10,10,10,10,10,10,
+    ]
+    ts: [0, 3]
+    qs: [
+      [],
+      [ -0.1, 0,0,0.3,-0.2,0,
+        -0.1, 0,0,0.3,-0.2,0,
+        0,0,0,
+        0, 0.25,0,0.97,0.15, 0,0,
+        0, -0.25,0,0.97,-0.15, 0,0
+      ]
+    ]
+  Velocity:
+    transitions: 
+      Passive: LT + B.on_pressed
+      Mimic_Dance_102: LT(2s) + down.on_pressed
+      Mimic_Gangnam_Style: LT(2s) + left.on_pressed
+
+    policy_dir: config/policy/warpsac # 如果需要切换 flashsac 策略可改为：config/policy/warpsac
+
+
+  Mimic_Dance_102:
+    transitions: 
+      Passive: LT + B.on_pressed
+      Velocity: RB + X.on_pressed
+    fps: 60
+    motion_file: config/policy/mimic/dance_102/params/G1_Take_102.bvh_60hz.csv
+    policy_dir: config/policy/mimic/dance_102/
+    time_start: 2.8
+    time_end: 24.0
+  Mimic_Gangnam_Style:
+    transitions: 
+      Passive: LT + B.on_pressed
+      Velocity: RB + X.on_pressed
+    fps: 60
+    motion_file: config/policy/mimic/gangnam_style/params/G1_gangnam_style_V01.bvh_60hz.csv
+    policy_dir: config/policy/mimic/gangnam_style/
+    time_start: 5.2
+    time_end: 25.5

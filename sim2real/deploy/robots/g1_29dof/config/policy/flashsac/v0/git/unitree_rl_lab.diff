@@ -1,0 +1,372 @@
+--- git commit ---
+4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
+
+
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   deploy/robots/g1_29dof/CMakeLists.txt
+	modified:   deploy/robots/g1_29dof/config/config.yaml
+	modified:   deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+	modified:   deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
+	modified:   scripts/rsl_rl/play.py
+	modified:   scripts/rsl_rl/train.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	deploy/robots/g1_29dof/config/policy/stage2_tray/
+	"deploy/robots/g1_29dof/config/policy/velocity \345\216\237\346\226\207\344\273\266/"
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/deploy/robots/g1_29dof/CMakeLists.txt b/deploy/robots/g1_29dof/CMakeLists.txt
+index 0e29419..1ac9a63 100644
+--- a/deploy/robots/g1_29dof/CMakeLists.txt
++++ b/deploy/robots/g1_29dof/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-cmake_minimum_required(VERSION 3.12)
++#cmake_minimum_required(VERSION 3.12)
+ project(g1_29dof_controller)
+ 
+ set(CMAKE_CXX_STANDARD 17)
+@@ -28,4 +28,6 @@ file(GLOB_RECURSE ADD_SRC_LIST
+ add_library(${PROJECT_NAME}_lib ${ADD_SRC_LIST})
+ link_libraries(${PROJECT_NAME}_lib)
+ 
+-add_executable(g1_ctrl main.cpp)
+\ No newline at end of file
++add_executable(g1_ctrl main.cpp)
++
++
+diff --git a/deploy/robots/g1_29dof/config/config.yaml b/deploy/robots/g1_29dof/config/config.yaml
+index 8cc97fe..ccc701f 100644
+--- a/deploy/robots/g1_29dof/config/config.yaml
++++ b/deploy/robots/g1_29dof/config/config.yaml
+@@ -67,6 +67,7 @@ FSM:
+       Mimic_Gangnam_Style: LT(2s) + left.on_pressed
+ 
+     policy_dir: config/policy/velocity
++    #policy_dir: config/policy/stage2_tray
+     # policy_dir: ../../../logs/rsl_rl/unitree_g1_29dof_velocity
+   Mimic_Dance_102:
+     transitions: 
+diff --git a/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx b/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+index c50bb5f..6df7258 100644
+Binary files a/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx and b/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx differ
+diff --git a/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml b/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
+index 54ebf64..420eb64 100644
+--- a/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
++++ b/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
+@@ -1,65 +1,129 @@
+ joint_ids_map: [0, 6, 12, 1, 7, 13, 2, 8, 14, 3, 9, 15, 22, 4, 10, 16, 23, 5, 11,
+   17, 24, 18, 25, 19, 26, 20, 27, 21, 28]
+ step_dt: 0.02
+-stiffness: [100.0, 100.0, 100.0, 150.0, 40.0, 40.0, 100.0, 100.0, 100.0, 150.0, 40.0,
+-  40.0, 200.0, 200.0, 200.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0,
+-  40.0, 40.0, 40.0, 40.0, 40.0]
+-damping: [2.0, 2.0, 2.0, 4.0, 2.0, 2.0, 2.0, 2.0, 2.0, 4.0, 2.0, 2.0, 5.0, 5.0, 5.0,
+-  10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+-default_joint_pos: [-0.1, -0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.3,
+-  0.3, -0.2, -0.2, 0.25, -0.25, 0.0, 0.0, 0.0, 0.0, 0.97, 0.97, 0.15, -0.15, 0.0,
+-  0.0, 0.0, 0.0]
++stiffness: [40.2, 99.1, 40.2, 99.1, 28.5, 28.5, 40.2, 99.1, 40.2, 99.1, 28.5, 28.5,
++  40.2, 28.5, 28.5, 14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8, 14.3, 14.3, 14.3, 14.3,
++  14.3, 16.8, 16.8]
++damping: [2.56, 6.31, 2.56, 6.31, 1.81, 1.81, 2.56, 6.31, 2.56, 6.31, 1.81, 1.81,
++  2.56, 1.81, 1.81, 0.907, 0.907, 0.907, 0.907, 0.907, 1.07, 1.07, 0.907, 0.907, 0.907,
++  0.907, 0.907, 1.07, 1.07]
++default_joint_pos: [-0.1, -0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.0,
++  0.0, -0.2, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
++  0.0]
+ commands:
+   base_velocity:
+     ranges:
+       lin_vel_x: [-0.5, 1.0]
+-      lin_vel_y: [-0.3, 0.3]
+-      ang_vel_z: [-0.2, 0.2]
+-      heading: null
++      lin_vel_y: [-0.5, 0.5]
++      ang_vel_z: [-0.5, 0.5]
++      heading: !!python/tuple [-3.14, 3.14]
+ actions:
+   JointPositionAction:
+-    clip: null
++    clip:
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
++    - [-100.0, 100.0]
+     joint_names: [.*]
+-    scale: [0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+-      0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+-      0.25, 0.25, 0.25, 0.25]
+-    offset: [-0.1, -0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.3, 0.3, -0.2,
+-      -0.2, 0.25, -0.25, 0.0, 0.0, 0.0, 0.0, 0.97, 0.97, 0.15, -0.15, 0.0, 0.0, 0.0,
+-      0.0]
++    scale: [0.548, 0.548, 0.548, 0.351, 0.351, 0.439, 0.548, 0.548, 0.439, 0.351,
++      0.351, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439,
++      0.439, 0.439, 0.439, 0.439, 0.0745, 0.0745, 0.0745, 0.0745]
++    offset: [-0.1, -0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.0, 0.0, -0.2,
++      -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+     joint_ids: null
+ observations:
+   base_ang_vel:
+     params: {}
+-    clip: null
++    clip: [-100.0, 100.0]
+     scale: [0.2, 0.2, 0.2]
+     history_length: 5
++    delay_min_lag: 0
++    delay_max_lag: 0
++    delay_per_env: true
++    delay_hold_prob: 0.0
++    delay_update_period: 0
++    delay_per_env_phase: true
+   projected_gravity:
+     params: {}
+-    clip: null
++    clip: [-100.0, 100.0]
+     scale: [1.0, 1.0, 1.0]
+     history_length: 5
++    delay_min_lag: 0
++    delay_max_lag: 0
++    delay_per_env: true
++    delay_hold_prob: 0.0
++    delay_update_period: 0
++    delay_per_env_phase: true
+   velocity_commands:
+-  # keyboard_velocity_commands:
+     params: {command_name: base_velocity}
+     clip: null
+     scale: [1.0, 1.0, 1.0]
+     history_length: 5
++    delay_min_lag: 0
++    delay_max_lag: 0
++    delay_per_env: true
++    delay_hold_prob: 0.0
++    delay_update_period: 0
++    delay_per_env_phase: true
+   joint_pos_rel:
+     params: {}
+-    clip: null
++    clip: [-100.0, 100.0]
+     scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+       1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+     history_length: 5
++    delay_min_lag: 0
++    delay_max_lag: 0
++    delay_per_env: true
++    delay_hold_prob: 0.0
++    delay_update_period: 0
++    delay_per_env_phase: true
+   joint_vel_rel:
+     params: {}
+-    clip: null
++    clip: [-100.0, 100.0]
+     scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
+       0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
+       0.05, 0.05, 0.05, 0.05]
+     history_length: 5
++    delay_min_lag: 0
++    delay_max_lag: 0
++    delay_per_env: true
++    delay_hold_prob: 0.0
++    delay_update_period: 0
++    delay_per_env_phase: true
+   last_action:
+     params: {}
+-    clip: null
++    clip: [-100.0, 100.0]
+     scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+       1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+     history_length: 5
++    delay_min_lag: 0
++    delay_max_lag: 0
++    delay_per_env: true
++    delay_hold_prob: 0.0
++    delay_update_period: 0
++    delay_per_env_phase: true
+diff --git a/scripts/rsl_rl/play.py b/scripts/rsl_rl/play.py
+index fd5ff85..b83aef8 100644
+--- a/scripts/rsl_rl/play.py
++++ b/scripts/rsl_rl/play.py
+@@ -10,6 +10,8 @@
+ import argparse
+ from importlib.metadata import version
+ 
++from packaging.version import Version
++
+ from isaaclab.app import AppLauncher
+ 
+ # local imports
+@@ -56,8 +58,15 @@ import isaaclab_tasks  # noqa: F401
+ from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
+ from isaaclab.utils.assets import retrieve_file_path
+ from isaaclab.utils.dict import print_dict
+-from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
++from isaaclab_rl.rsl_rl import (
++    RslRlOnPolicyRunnerCfg,
++    RslRlVecEnvWrapper,
++    export_policy_as_jit,
++    export_policy_as_onnx,
++    handle_deprecated_rsl_rl_cfg,
++    handle_deprecated_rsl_rl_checkpoint,
++)
++from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+ from isaaclab_tasks.utils import get_checkpoint_path
+ 
+ import unitree_rl_lab.tasks  # noqa: F401
+@@ -75,6 +84,8 @@ def main():
+         entry_point_key="play_env_cfg_entry_point",
+     )
+     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
++    installed_version = version("rsl-rl-lib")
++    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
+ 
+     # specify directory for logging experiments
+     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
+@@ -90,6 +101,8 @@ def main():
+     else:
+         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+ 
++    resume_path = handle_deprecated_rsl_rl_checkpoint(resume_path, installed_version)
++
+     log_dir = os.path.dirname(resume_path)
+ 
+     # create isaac environment
+@@ -129,27 +142,22 @@ def main():
+     # obtain the trained policy for inference
+     policy = runner.get_inference_policy(device=env.unwrapped.device)
+ 
+-    # extract the neural network module
+-    # we do this in a try-except to maintain backwards compatibility.
+-    try:
+-        # version 2.3 onwards
+-        policy_nn = runner.alg.policy
+-    except AttributeError:
+-        # version 2.2 and below
+-        policy_nn = runner.alg.actor_critic
+-
+-    # extract the normalizer
+-    if hasattr(policy_nn, "actor_obs_normalizer"):
+-        normalizer = policy_nn.actor_obs_normalizer
+-    elif hasattr(policy_nn, "student_obs_normalizer"):
+-        normalizer = policy_nn.student_obs_normalizer
+-    else:
+-        normalizer = None
+-
+     # export policy to onnx/jit
+     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
+-    export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
+-    export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
++    if Version(installed_version) >= Version("4.0.0"):
++        runner.export_policy_to_jit(path=export_model_dir, filename="policy.pt")
++        runner.export_policy_to_onnx(path=export_model_dir, filename="policy.onnx")
++    else:
++        # RSL-RL before 4.0 stores actor and critic in one policy module.
++        policy_nn = runner.alg.policy if Version(installed_version) >= Version("2.3.0") else runner.alg.actor_critic
++        if hasattr(policy_nn, "actor_obs_normalizer"):
++            normalizer = policy_nn.actor_obs_normalizer
++        elif hasattr(policy_nn, "student_obs_normalizer"):
++            normalizer = policy_nn.student_obs_normalizer
++        else:
++            normalizer = None
++        export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
++        export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
+ 
+     dt = env.unwrapped.step_dt
+ 
+@@ -166,7 +174,9 @@ def main():
+             # agent stepping
+             actions = policy(obs)
+             # env stepping
+-            obs, _, _, _ = env.step(actions)
++            obs, _, dones, _ = env.step(actions)
++            if Version(installed_version) >= Version("4.0.0"):
++                policy.reset(dones)
+         if args_cli.video:
+             timestep += 1
+             # Exit the play loop after recording one video
+diff --git a/scripts/rsl_rl/train.py b/scripts/rsl_rl/train.py
+index 28dae91..f75aba2 100644
+--- a/scripts/rsl_rl/train.py
++++ b/scripts/rsl_rl/train.py
+@@ -104,7 +104,7 @@ from isaaclab.envs import (
+ )
+ from isaaclab.utils.dict import print_dict
+ from isaaclab.utils.io import dump_yaml
+-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
++from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
+ from isaaclab_tasks.utils import get_checkpoint_path
+ from isaaclab_tasks.utils.hydra import hydra_task_config
+ 
+@@ -127,6 +127,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
+         args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
+     )
+ 
++    # Convert legacy policy-based configs to the actor/critic format expected by
++    # the installed RSL-RL version (5.x in current Isaac Lab releases).
++    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
++
+     # set the environment seed
+     # note: certain randomizations occur in the environment initialization so we set the seed here
+     env_cfg.seed = agent_cfg.seed
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+index e78413a..94f0c0b 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+@@ -17,7 +17,7 @@ from isaaclab.utils import configclass
+ 
+ from unitree_rl_lab.assets.robots import unitree_actuators
+ 
+-UNITREE_MODEL_DIR = "path/to/unitree_model"  # Replace with the actual path to your unitree_model directory
++UNITREE_MODEL_DIR = "/home/uas/IsaacLab/unitree_model"  # Replace with the actual path to your unitree_model directory
+ UNITREE_ROS_DIR = "path/to/unitree_ros"  # Replace with the actual path to your unitree_ros package
+ 
+ 
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+index f5f98fb..2771a4a 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+@@ -16,6 +16,7 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+     empirical_normalization = False
+     policy = RslRlPpoActorCriticCfg(
+         init_noise_std=1.0,
++        noise_std_type="log",
+         actor_hidden_dims=[512, 256, 128],
+         critic_hidden_dims=[512, 256, 128],
+         activation="elu",
