@@ -65,7 +65,7 @@ class Network(nnx.Module, Generic[ModelT]):
 
     def load(self, checkpoint_dir: str | Path) -> None:
         """Load parameters and optimizer state from an Orbax checkpoint."""
-        checkpoint_dir = Path(checkpoint_dir)
+        checkpoint_dir = Path(checkpoint_dir).absolute()
         objects = (self.model, self.opt)
         template = nnx.state(objects)
         with ocp.StandardCheckpointer() as ckpt:
