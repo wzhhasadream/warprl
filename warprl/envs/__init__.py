@@ -4,7 +4,7 @@ from gymnasium.vector import SyncVectorEnv, VectorEnv, AsyncVectorEnv
 from gymnasium.wrappers import RescaleAction, TimeLimit
 from .types import Tensor
 
-CPU_SIM = ("mujoco", "dmc", "myosuite", "humanoid_bench")
+CPU_SIM = ("mujoco", "dmc", "myosuite", "humanoid_bench", "metaworld")
 GPU_SIM = ("playground", "isaaclab", "maniskill", "mjlab")
 
 
@@ -87,7 +87,35 @@ def create_envs(
     render_mode: str | None = None,
 ) -> tuple[VectorEnv, VectorEnv, VectorEnv]:
 
-    if env_type in CPU_SIM:
+    if env_type == "metaworld" and env_name.upper() in ["MT10", "MT50"]:
+        from .metaworld import make_metaworld_benchmark_envs
+
+        train_env = make_metaworld_benchmark_envs(
+            benchmark_name=env_name,
+            seed=seed,
+            num_envs=num_train_envs,
+            render_mode=None,
+            max_episode_steps=max_episode_steps,
+            use_one_hot=True,
+        )
+        eval_env = make_metaworld_benchmark_envs(
+            benchmark_name=env_name,
+            seed=seed,
+            num_envs=num_eval_envs,
+            render_mode=None,
+            max_episode_steps=max_episode_steps,
+            use_one_hot=True,
+        )
+        record_env = make_metaworld_benchmark_envs(
+            benchmark_name=env_name,
+            seed=seed,
+            num_envs=num_record_envs,
+            render_mode=render_mode,
+            max_episode_steps=max_episode_steps,
+            use_one_hot=True,
+        )
+
+    elif env_type in CPU_SIM:
         train_env = create_vec_env(
             env_type=env_type,
             env_name=env_name,
@@ -115,7 +143,6 @@ def create_envs(
             max_episode_steps=max_episode_steps,
             render_mode=render_mode,
         )
-
 
     elif env_type in GPU_SIM:
         if env_type == "playground":
@@ -255,11 +282,14 @@ def create_vec_env(
         elif env_type == 'myosuite':
             from .myosuite import make_myosuite_env
             env = make_myosuite_env(env_name, seed, render_mode=render_mode)
+        elif env_type == 'metaworld':
+            from .metaworld import make_metaworld_env
+            env = make_metaworld_env(env_name, seed, render_mode=render_mode)
         else:
             raise NotImplementedError
 
         if rescale_action:
-            env = RescaleAction(env, -1.0, 1.0)
+            env = RescaleAction(env, np.float32(-1.0), np.float32(1.0))
 
         # limit max_steps before action_repeat.
         env = TimeLimit(env, max_episode_steps)
