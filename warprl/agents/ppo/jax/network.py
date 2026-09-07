@@ -1,6 +1,8 @@
 import jax
 from flax import nnx
 from typing import Callable, TypeVar, Generic, Sequence
+
+from warprl.utils import flatten_observation_dim
 from ....model.jax import MLP, OnPolicyRMS
 from ....model.jax.policy import GaussianPolicy
 import jax.numpy as jnp
@@ -10,7 +12,7 @@ import math
 class Actor(nnx.Module):
     def __init__(
         self,
-        obs_dim: int,
+        obs_dim: int | Sequence[int],
         action_dim: int,
         hidden_dims: Sequence[int],
         rngs: nnx.Rngs,
@@ -19,10 +21,10 @@ class Actor(nnx.Module):
         compute_type: Dtype = jnp.float32,
     ) -> None:
 
-        self.obs_dim = obs_dim
+        self.obs_dim = flatten_observation_dim(obs_dim)
         self.obs_norm = OnPolicyRMS(obs_dim)
         self.encoder = MLP(
-            obs_dim,
+            self.obs_dim,
             hidden_dims,
             rngs,
             activation_fn=activation,
@@ -73,12 +75,13 @@ class Actor(nnx.Module):
 class Critic(nnx.Module):
     def __init__(
         self,
-        obs_dim: int,
+        obs_dim: int | Sequence[int],
         hidden_dims: Sequence[int],
         rngs: nnx.Rngs,
         activation: Callable[[jax.Array], jax.Array]=jax.nn.elu,
         compute_type: Dtype = jnp.float32
     ) -> None:
+        obs_dim = flatten_observation_dim(obs_dim)
         self.obs_norm = OnPolicyRMS(obs_dim)
         self.encoder = MLP(obs_dim, hidden_dims, rngs,
                            activation_fn=activation, compute_type=compute_type)

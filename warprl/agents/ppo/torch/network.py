@@ -6,22 +6,23 @@ import torch.nn.functional as F
 import math
 from ....model.torch import Linear, MLP, OnPolicyRMS
 from ....model.torch.policy import GaussianPolicy
+from ....utils import flatten_observation_dim
 
 
 class Actor(nn.Module):
     def __init__(
         self,
-        obs_dim: int,
+        obs_dim: int | Sequence[int],
         action_dim: int,
         hidden_dims: Sequence[int],
         activation: Callable[[torch.Tensor], torch.Tensor] = F.elu,
         init_std: float = 1
     ) -> None:
         super().__init__()
-        self.obs_dim = obs_dim
+        self.obs_dim = flatten_observation_dim(obs_dim)
         self.obs_norm = OnPolicyRMS(obs_dim)
         self.encoder = MLP(
-            obs_dim,
+            self.obs_dim,
             hidden_dims,
             layer_norm=True,
             activation_fn=activation,
@@ -58,11 +59,12 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(
         self,
-        obs_dim: int,
+        obs_dim: int | Sequence[int],
         hidden_dims: Sequence[int],
         activation: Callable[[torch.Tensor], torch.Tensor] = F.elu,
     ) -> None:
         super().__init__()
+        obs_dim = flatten_observation_dim(obs_dim)
         self.obs_norm = OnPolicyRMS(obs_dim)
         self.encoder = MLP(
             obs_dim,

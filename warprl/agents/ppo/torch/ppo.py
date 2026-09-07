@@ -61,7 +61,7 @@ class PPOAgent(OnPolicyAgent):
             observations,
             dtype=torch.float32,
             device=self.learner_device,
-        ).reshape(-1, self.critic_observation_dim)
+        ).reshape(-1, *self.critic_obs_shape)
 
     @staticmethod
     def _numpy(tensor: torch.Tensor) -> np.ndarray:

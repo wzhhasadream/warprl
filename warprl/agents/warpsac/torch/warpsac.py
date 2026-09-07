@@ -128,7 +128,7 @@ class WarpSACAgent(OffPolicyAgent):
     def _observations(self, observations: np.ndarray | torch.Tensor) -> torch.Tensor:
         return torch.as_tensor(
             observations, device=self.learner_device, dtype=torch.float32
-        ).reshape(-1, self.critic_observation_dim)
+        ).reshape(-1, *self.critic_obs_shape)
 
     def get_action(self, observations: np.ndarray | torch.Tensor) -> np.ndarray:
         actions = get_eval_action(

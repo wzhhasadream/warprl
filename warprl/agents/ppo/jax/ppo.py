@@ -90,7 +90,7 @@ class PPOAgent(OnPolicyAgent):
 
     def _observations(self, observations: jax.Array | np.ndarray) -> jax.Array:
         obs = jnp.asarray(observations, dtype=jnp.float32).reshape(
-            (-1, self.critic_observation_dim)
+            (-1, *self.critic_obs_shape)
         )
         return obs
 

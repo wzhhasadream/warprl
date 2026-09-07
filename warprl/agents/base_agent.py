@@ -30,7 +30,7 @@ class BaseAgent(ABC):
         self.critic_obs_shape = (
             self.observation_shape
             if len(self.observation_shape) > 1
-            else self.observation_shape[0]
+            else (self.observation_shape[0], )
         )
         self.actor_obs_shape = self.critic_obs_shape
         self.asymmetric_obs = getattr(envs, 'asymmetric_obs', False)
@@ -49,7 +49,7 @@ class BaseAgent(ABC):
             self.actor_obs_shape = (
                 actor_observation_shape
                 if len(actor_observation_shape) > 1
-                else actor_observation_shape[0]
+                else (actor_observation_shape[0], )
             )
 
     @property
