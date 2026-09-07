@@ -96,13 +96,21 @@ def make_dmc_env(
     render_mode: str | None = None,
 ) -> gym.Env:
     _patch_dm_control_mujoco_schema()
-    domain_name, task_name = env_name.split("-")
+    domain_name, task_name = env_name.split("-", maxsplit=1)
+
     env = suite.load(
         domain_name=domain_name,
         task_name=task_name,
         task_kwargs={"random": seed},
     )
-    env = DmControltoGymnasium(env, render_mode=render_mode)
+    camera_id = 2 if domain_name == "quadruped" else 0
+    env = DmControltoGymnasium(
+        env,
+        render_mode=render_mode,
+        render_height=84,
+        render_width=84,
+        camera_id=camera_id,
+    )
     if flatten and isinstance(env.observation_space, spaces.Dict):
         env = FlattenObservation(env)
 

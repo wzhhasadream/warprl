@@ -33,14 +33,14 @@ class PPOAgent(OnPolicyAgent):
         activation = getattr(F, self.cfg.activation)
         model = ActorCritic(
             Actor(
-                self.actor_observation_dim,
+                self.actor_obs_shape,
                 self.action_dim,
                 self.cfg.actor_hidden_dims,
                 activation,
                 init_std=self.cfg.init_std
             ),
             Critic(
-                self.critic_observation_dim,
+                self.critic_obs_shape,
                 self.cfg.critic_hidden_dims,
                 activation,
             ),

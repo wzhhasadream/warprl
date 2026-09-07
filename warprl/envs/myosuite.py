@@ -37,9 +37,14 @@ class MyosuiteGymnasiumVersionWrapper(gym.Wrapper):
       - fix b.
     """
 
-    def __init__(self, env: gym.Env):
+    def __init__(self, env: gym.Env, render_mode: str | None = None):
         super().__init__(env)
         self.unwrapped_env = env.unwrapped
+        self._render_mode = render_mode
+
+    @property
+    def render_mode(self) -> str | None:
+        return self._render_mode
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
@@ -65,8 +70,7 @@ def make_myosuite_env(
     from myosuite.utils import gym as myo_gym
 
     _patch_dm_control_mujoco_schema()
-    del render_mode
     env = myo_gym.make(MYOSUITE_TASKS_DICT[env_name])
-    env = MyosuiteGymnasiumVersionWrapper(env)
+    env = MyosuiteGymnasiumVersionWrapper(env, render_mode)
 
     return env

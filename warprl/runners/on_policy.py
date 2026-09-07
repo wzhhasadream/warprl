@@ -6,7 +6,7 @@ import numpy as np
 import tqdm
 from gymnasium.vector import VectorEnv
 
-from ..agent.base_agent import OnPolicyAgent
+from ..agents.base_agent import OnPolicyAgent
 from ..buffers import RolloutTransition
 from ..utils import bootstrap_timeout_rewards, evaluate_policy, record_video
 from ..utils import logger

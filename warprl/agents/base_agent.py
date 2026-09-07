@@ -5,6 +5,8 @@ from gymnasium.vector import VectorEnv
 from typing import Any, TYPE_CHECKING, TypeAlias
 import numpy as np
 from pathlib import Path
+
+from ..utils import is_image_observation
 from ..buffers import RolloutTransition, Transition
 
 if TYPE_CHECKING:
@@ -25,12 +27,16 @@ class BaseAgent(ABC):
         self.num_envs = envs.num_envs
         self.observation_shape = tuple(self.observation_space.shape)
         self.action_dim = int(np.prod(np.asarray(self.action_space.shape)))
-        self.critic_observation_dim = int(
-            np.prod(np.asarray(self.observation_shape))
+        self.critic_obs_shape = (
+            self.observation_shape
+            if len(self.observation_shape) > 1
+            else self.observation_shape[0]
         )
-        self.actor_observation_dim = self.critic_observation_dim
+        self.actor_obs_shape = self.critic_obs_shape
         self.asymmetric_obs = getattr(envs, 'asymmetric_obs', False)
         self.cfg.asymmetric_obs = self.asymmetric_obs
+        self.cfg.image_obs = is_image_observation(self.observation_shape)
+        self.image_obs = self.cfg.image_obs
         if self.asymmetric_obs:
             actor_observation_size = getattr(
                 envs, "actor_observation_size", None
@@ -39,16 +45,20 @@ class BaseAgent(ABC):
                 raise ValueError(
                     "Asymmetric observations require actor_observation_size"
                 )
-            self.actor_observation_dim = int(
-                np.prod(np.asarray(actor_observation_size))
+            actor_observation_shape = tuple(actor_observation_size)
+            self.actor_obs_shape = (
+                actor_observation_shape
+                if len(actor_observation_shape) > 1
+                else actor_observation_shape[0]
             )
 
     @property
-    def observation_debug_info(self) -> dict[str, int | bool]:
+    def observation_debug_info(self) -> dict[str, int | tuple[int, ...] | bool]:
         return {
             "asymmetric_obs": self.asymmetric_obs,
-            "actor_input_dim": self.actor_observation_dim,
-            "critic_input_dim": self.critic_observation_dim,
+            "image_obs": self.image_obs,
+            "actor_obs_shape": self.actor_obs_shape,
+            "critic_obs_shape": self.critic_obs_shape,
         }
 
     @property

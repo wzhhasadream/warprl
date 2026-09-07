@@ -7,7 +7,7 @@ import numpy as np
 import tqdm
 from gymnasium.vector import VectorEnv
 
-from ..agent.base_agent import OffPolicyAgent
+from ..agents.base_agent import OffPolicyAgent
 from ..buffers import Transition
 from ..utils import evaluate_policy, record_video, replace_done_next_obs
 from ..utils import logger

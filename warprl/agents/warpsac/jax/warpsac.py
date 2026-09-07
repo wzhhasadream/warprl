@@ -20,7 +20,6 @@ from .update import make_update_warpsac
 from pathlib import Path
 
 
-
 def default_learner_device() -> jax.Device:
     try:
         gpu_devices = jax.devices("gpu")
@@ -95,7 +94,7 @@ class WarpSACAgent(OffPolicyAgent):
         )
 
         actor_model = FlashSACActor(
-            self.actor_observation_dim,
+            self.actor_obs_shape,
             self.action_dim,
             rngs.fork(),
             hidden_dim=self.cfg.actor_hidden_dim,
@@ -106,7 +105,7 @@ class WarpSACAgent(OffPolicyAgent):
             compute_type=compute_type,
         )
         critic_model = FlashSACDoubleCritic(
-            self.critic_observation_dim,
+            self.critic_obs_shape,
             self.action_dim,
             rngs.fork(split=self.cfg.num_q),
             hidden_dim=self.cfg.critic_hidden_dim,

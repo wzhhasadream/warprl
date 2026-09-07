@@ -45,7 +45,7 @@ class PPOAgent(OnPolicyAgent):
         rngs = nnx.Rngs(self.cfg.seed)
         model = ActorCritic(
             Actor(
-                self.actor_observation_dim,
+                self.actor_obs_shape,
                 self.action_dim,
                 self.cfg.actor_hidden_dims,
                 rngs,
@@ -54,7 +54,7 @@ class PPOAgent(OnPolicyAgent):
                 compute_type=compute_type,
             ),
             Critic(
-                self.critic_observation_dim,
+                self.critic_obs_shape,
                 self.cfg.critic_hidden_dims,
                 rngs,
                 getattr(jax.nn, self.cfg.activation),

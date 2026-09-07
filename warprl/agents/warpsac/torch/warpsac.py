@@ -55,7 +55,7 @@ class WarpSACAgent(OffPolicyAgent):
             device=self.cfg.buffer_device,
         )
         actor_model = FlashSACActor(
-            self.actor_observation_dim,
+            self.actor_obs_shape,
             self.action_dim,
             hidden_dim=self.cfg.actor_hidden_dim,
             num_blocks=self.cfg.actor_num_blocks,
@@ -64,7 +64,7 @@ class WarpSACAgent(OffPolicyAgent):
             use_bias=self.cfg.use_bias,
         ).to(device=self.learner_device)
         critic_model = FlashSACDoubleCritic(
-            self.critic_observation_dim,
+            self.critic_obs_shape,
             self.action_dim,
             num_q=self.cfg.num_q,
             hidden_dim=self.cfg.critic_hidden_dim,
