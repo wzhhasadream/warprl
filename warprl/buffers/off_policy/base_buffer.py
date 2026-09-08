@@ -66,16 +66,16 @@ class BaseBuffer(ABC):
     ):
         self.max_size = max_size
         self.action_space = action_space
-        self.obsveration_space = observation_space
+        self.observation_space = observation_space
         # Extract shapes from spaces
-        obsveration_shape = get_obs_shape(observation_space)
+        observation_shape = get_obs_shape(observation_space)
         action_dim = get_action_dim(action_space)
 
         # Handle both int and tuple for obs_shape
-        if isinstance(obsveration_shape, int):
-            self.obsveration_shape = (obsveration_shape,)
+        if isinstance(observation_shape, int):
+            self.observation_shape = (observation_shape,)
         else:
-            self.obsveration_shape = obsveration_shape
+            self.observation_shape = observation_shape
 
         self.action_shape = (action_dim,)
 

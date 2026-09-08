@@ -66,11 +66,11 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def get_action(self, obsveration: Tensor) -> np.ndarray:
+    def get_action(self, observation: Tensor) -> np.ndarray:
         pass
 
     @abstractmethod
-    def get_exploration_action(self, obsveration: Tensor) -> np.ndarray:
+    def get_exploration_action(self, observation: Tensor) -> np.ndarray:
         pass
 
     @abstractmethod
@@ -102,7 +102,7 @@ class OnPolicyAgent(BaseAgent):
         pass
 
     @abstractmethod
-    def update(self, last_obsveration: Tensor) -> dict[str, float]:
+    def update(self, last_observation: Tensor) -> dict[str, float]:
         pass
 
 

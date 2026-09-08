@@ -58,11 +58,11 @@ class TorchBuffer(BaseBuffer):
         assert self.num_buckets >= 1, f"num_buckets must be positive, got {self.num_buckets}"
         assert 0 <= self.min_weight <= 1, f"min_weight must be in [0, 1], got {self.min_weight}"
 
-        obs_dtype = _to_torch_dtype(self.obsveration_space.dtype)
+        obs_dtype = _to_torch_dtype(self.observation_space.dtype)
         action_dtype = _to_torch_dtype(self.action_space.dtype)
-        self.obsverations = torch.empty((self.max_size, *self.obsveration_shape), dtype=obs_dtype, device=self.device)
-        self.next_obsverations = torch.empty(
-            (self.max_size, *self.obsveration_shape), dtype=obs_dtype, device=self.device)
+        self.observations = torch.empty((self.max_size, *self.observation_shape), dtype=obs_dtype, device=self.device)
+        self.next_observations = torch.empty(
+            (self.max_size, *self.observation_shape), dtype=obs_dtype, device=self.device)
         self.actions = torch.empty((self.max_size, *self.action_shape), dtype=action_dtype, device=self.device)
         self.rewards = torch.empty((self.max_size,), dtype=torch.float32, device=self.device)
         self.terminations = torch.empty((self.max_size,), dtype=torch.float32, device=self.device)
@@ -82,13 +82,13 @@ class TorchBuffer(BaseBuffer):
     def _as_transition(self, transition: Transition) -> Transition:
         return Transition(
             observations=self._tensor(
-                transition.observations, self.obsverations.dtype, (self.num_envs, *self.obsveration_shape)),
+                transition.observations, self.observations.dtype, (self.num_envs, *self.observation_shape)),
             actions=self._tensor(transition.actions, self.actions.dtype, (self.num_envs, *self.action_shape)),
             rewards=self._tensor(transition.rewards, torch.float32, (self.num_envs,)),
             truncations=self._tensor(transition.truncations, torch.float32, (self.num_envs,)),
             terminations=self._tensor(transition.terminations, torch.float32, (self.num_envs,)),
             next_observations=self._tensor(
-                transition.next_observations, self.next_obsverations.dtype, (self.num_envs, *self.obsveration_shape)),
+                transition.next_observations, self.next_observations.dtype, (self.num_envs, *self.observation_shape)),
         )
 
     def _get_n_step_transition(self) -> tuple[Transition, torch.Tensor]:
@@ -127,12 +127,12 @@ class TorchBuffer(BaseBuffer):
         add_indices = (torch.arange(add_count, device=self.device) + self.ptr) % self.max_size
         old_size = self.size
 
-        self.obsverations[add_indices] = transition.observations
+        self.observations[add_indices] = transition.observations
         self.actions[add_indices] = transition.actions
         self.rewards[add_indices] = transition.rewards
         self.terminations[add_indices] = transition.terminations
         self.truncations[add_indices] = transition.truncations
-        self.next_obsverations[add_indices] = transition.next_observations
+        self.next_observations[add_indices] = transition.next_observations
         self.discounts[add_indices] = discount
 
         if self.linear_decay_step != 0:
@@ -209,11 +209,11 @@ class TorchBuffer(BaseBuffer):
         assert self.can_sample(), "Cannot sample from an empty buffer"
         indices = self._sample_indices(batch_size)
         return Batch(
-            observations=self.obsverations[indices],
+            observations=self.observations[indices],
             actions=self.actions[indices],
             rewards=self.rewards[indices, None],
             dones=self.terminations[indices, None],
-            next_observations=self.next_obsverations[indices],
+            next_observations=self.next_observations[indices],
             discounts=self.discounts[indices, None],
         )
 
@@ -228,12 +228,12 @@ class TorchBuffer(BaseBuffer):
     def save(self, path: str) -> None:
         torch.save(
             {
-                "obsverations": self.obsverations[:self.size],
+                "observations": self.observations[:self.size],
                 "actions": self.actions[:self.size],
                 "rewards": self.rewards[:self.size],
                 "terminations": self.terminations[:self.size],
                 "truncations": self.truncations[:self.size],
-                "next_obsverations": self.next_obsverations[:self.size],
+                "next_observations": self.next_observations[:self.size],
                 "discounts": self.discounts[:self.size],
             },
             path,

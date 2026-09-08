@@ -1,5 +1,4 @@
 from collections import deque
-from typing import Literal
 
 import gymnasium as gym
 import numpy as np
@@ -70,24 +69,15 @@ class PixelObservation(gym.Wrapper):
         size: int = 84,
         stack: int = 3,
         gray: bool = False,
-        image_layout: Literal["CHW", "HWC"] = "HWC",
     ) -> None:
         super().__init__(env)
-        if image_layout not in ("HWC", "CHW"):
-            raise ValueError(f"image_layout must be 'HWC' or 'CHW', got {image_layout!r}")
 
         self.size = size
         self.gray = gray
-        self.image_layout = image_layout
         self.frames = deque(maxlen=stack)
         channels = 1 if gray else 3
-        shape = (
-            (size, size, channels * stack)
-            if image_layout == "HWC"
-            else (channels * stack, size, size)
-        )
         self.observation_space = spaces.Box(
-            0, 255, shape=shape, dtype=np.uint8
+            0, 255, shape=(stack, size, size, channels), dtype=np.uint8
         )
 
     def _frame(self) -> np.ndarray:
@@ -99,13 +89,10 @@ class PixelObservation(gym.Wrapper):
         if self.gray:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)[..., None]
         frame = np.asarray(frame, dtype=np.uint8)
-        if self.image_layout == "CHW":
-            frame = frame.transpose(2, 0, 1)
         return frame
 
     def _observation(self) -> np.ndarray:
-        axis = -1 if self.image_layout == "HWC" else 0
-        return np.concatenate(tuple(self.frames), axis=axis)
+        return np.stack(tuple(self.frames), axis=0)
 
     def reset(self, **kwargs):
         _, info = self.env.reset(**kwargs)

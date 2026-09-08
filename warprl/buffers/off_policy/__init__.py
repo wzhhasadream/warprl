@@ -2,10 +2,20 @@ from typing import Any, Literal
 import gymnasium as gym
 from .types import Batch, Transition
 
+BufferType = Literal[
+    "numpy",
+    "np",
+    "numpy_pixel",
+    "numpy_frame_stack",
+    "jax",
+    "torch",
+    "pytorch",
+]
+
 def create_buffer(
     action_space: gym.spaces.Space,
     observation_space: gym.spaces.Space,
-    buffer_type: Literal["numpy", "np", "jax", "torch", "pytorch"] = "numpy",
+    buffer_type: BufferType = "numpy",
     num_env: int = 1,
     device: Any = "cpu",
     max_size: int = int(1e6),
@@ -34,6 +44,10 @@ def create_buffer(
         from .numpy_buffer import NumpyBuffer
 
         return NumpyBuffer(**common_kwargs)
+    if buffer_type in ("numpy_pixel", "numpy_frame_stack"):
+        from .numpy_lazy_frame_buffer import NumpyLazyFrameBuffer
+
+        return NumpyLazyFrameBuffer(**common_kwargs)
     if buffer_type in ("torch", "pytorch"):
         from .torch_buffer import TorchBuffer
 
@@ -58,4 +72,4 @@ def create_buffer(
     raise ValueError(f"Invalid buffer_type: {buffer_type}")
 
 
-__all__ = ["Batch", "Transition", "create_buffer"]
+__all__ = ["Batch", "Transition", "create_buffer", "BufferType"]

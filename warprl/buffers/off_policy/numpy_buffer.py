@@ -34,8 +34,8 @@ class NumpyBuffer(BaseBuffer):
         assert self.max_size >= self.num_envs, f"max_size must be >= num_envs, got {self.max_size} and {self.num_envs}"
         assert self.num_buckets >= 1, f"num_buckets must be positive, got {self.num_buckets}"
         assert 0 <= self.min_weight <= 1, f"min_weight must be in [0, 1], got {self.min_weight}"
-        self.obsverations = np.empty((self.max_size, * self.obsveration_shape), dtype=self.obsveration_space.dtype)
-        self.next_obsverations = np.empty((self.max_size, * self.obsveration_shape), dtype=self.obsveration_space.dtype)
+        self.observations = np.empty((self.max_size, * self.observation_shape), dtype=self.observation_space.dtype)
+        self.next_observations = np.empty((self.max_size, * self.observation_shape), dtype=self.observation_space.dtype)
         self.actions = np.empty((self.max_size, * self.action_shape), dtype=self.action_space.dtype)
         self.rewards = np.empty((self.max_size, ), dtype=np.float32)
         self.terminations = np.empty((self.max_size, ), dtype=np.float32)
@@ -52,15 +52,15 @@ class NumpyBuffer(BaseBuffer):
 
     def _as_transition(self, transition: Transition) -> Transition:
         return Transition(
-            observations=np.asarray(transition.observations, dtype=self.obsveration_space.dtype).reshape(
-                self.num_envs, *self.obsveration_shape),
+            observations=np.asarray(transition.observations, dtype=self.observation_space.dtype).reshape(
+                self.num_envs, *self.observation_shape),
             actions=np.asarray(transition.actions, dtype=self.action_space.dtype).reshape(
                 self.num_envs, *self.action_shape),
             rewards=np.asarray(transition.rewards, dtype=np.float32).reshape(self.num_envs),
             truncations=np.asarray(transition.truncations, dtype=np.float32).reshape(self.num_envs),
             terminations=np.asarray(transition.terminations, dtype=np.float32).reshape(self.num_envs),
-            next_observations=np.asarray(transition.next_observations, dtype=self.obsveration_space.dtype).reshape(
-                self.num_envs, *self.obsveration_shape),
+            next_observations=np.asarray(transition.next_observations, dtype=self.observation_space.dtype).reshape(
+                self.num_envs, *self.observation_shape),
         )
 
     def _get_n_step_transition(self) -> tuple[Transition, np.ndarray]:
@@ -101,12 +101,12 @@ class NumpyBuffer(BaseBuffer):
         add_indices = (self.ptr + np.arange(add_count)) % self.max_size
         old_size = self.size
 
-        self.obsverations[add_indices] = transition.observations
+        self.observations[add_indices] = transition.observations
         self.actions[add_indices] = transition.actions
         self.rewards[add_indices] = transition.rewards
         self.terminations[add_indices] = transition.terminations
         self.truncations[add_indices] = transition.truncations
-        self.next_obsverations[add_indices] = transition.next_observations
+        self.next_observations[add_indices] = transition.next_observations
         self.discounts[add_indices] = discount
 
         if self.linear_decay_step != 0:
@@ -182,11 +182,11 @@ class NumpyBuffer(BaseBuffer):
         assert self.can_sample(), "Cannot sample from an empty buffer"
         indices = self._sample_indices(batch_size)
         return Batch(
-            observations=self.obsverations[indices],
+            observations=self.observations[indices],
             actions=self.actions[indices],
             rewards=self.rewards[indices, None],
             dones=self.terminations[indices, None],
-            next_observations=self.next_obsverations[indices],
+            next_observations=self.next_observations[indices],
             discounts=self.discounts[indices, None],
         )
 
@@ -201,12 +201,12 @@ class NumpyBuffer(BaseBuffer):
     def save(self, path: str) -> None:
         np.savez(
             path,
-            obsverations=self.obsverations[:self.size],
+            observations=self.observations[:self.size],
             actions=self.actions[:self.size],
             rewards=self.rewards[:self.size],
             terminations=self.terminations[:self.size],
             truncations=self.truncations[:self.size],
-            next_obsverations=self.next_obsverations[:self.size],
+            next_observations=self.next_observations[:self.size],
             discounts=self.discounts[:self.size],
         )
 

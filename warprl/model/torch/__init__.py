@@ -10,7 +10,6 @@ from typing import Generic, TypeVar, Any, Sequence
 from pathlib import Path
 from torch.amp.grad_scaler import GradScaler
 from .layer import (
-    CNN,
     MLP,
     Linear,
     RMSNorm,
@@ -212,5 +211,4 @@ class Alpha(nn.Module):
 
     def forward(self):
         return torch.exp(self.log_alpha)
-
 

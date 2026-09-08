@@ -22,7 +22,6 @@ def create_envs(
     clip_action: bool = True,
     render_mode: str | None = None,
     gray: bool = False,
-    image_layout: str = "HWC",
 ) -> tuple[VectorEnv, VectorEnv, VectorEnv]:
 
     if env_type == "metaworld" and env_name.upper() in ["MT10", "MT50"]:
@@ -64,7 +63,6 @@ def create_envs(
             render_mode=None,
             action_repeat=action_repeat,
             gray=gray,
-            image_layout=image_layout,
         )
         eval_env = create_vec_env(
             env_type=env_type,
@@ -76,7 +74,6 @@ def create_envs(
             render_mode=None,
             action_repeat=action_repeat,
             gray=gray,
-            image_layout=image_layout,
         )
         record_env = create_vec_env(
             env_type=env_type,
@@ -88,7 +85,6 @@ def create_envs(
             render_mode=render_mode,
             action_repeat=action_repeat,
             gray=gray,
-            image_layout=image_layout,
         )
 
     elif env_type in GPU_SIM:
@@ -208,7 +204,6 @@ def create_vec_env(
     render_mode: str | None = None,
     action_repeat: int = 1,
     gray: bool = False,
-    image_layout: str = "HWC",
 ) -> VectorEnv:
 
     def make_one_env(
@@ -220,7 +215,6 @@ def create_vec_env(
         render_mode: str | None,
         action_repeat: int,
         gray: bool,
-        image_layout: str,
     ) -> gym.Env:
         is_pixel_obs = env_name.endswith("-visual")
         env_name = env_name.removesuffix("-visual")
@@ -257,7 +251,7 @@ def create_vec_env(
             env = ActionRepeat(env, action_repeat)
 
         if is_pixel_obs:
-            env = PixelObservation(env, gray=gray, image_layout=image_layout)
+            env = PixelObservation(env, gray=gray)
 
         env.observation_space.seed(seed)
         env.action_space.seed(seed)
@@ -274,7 +268,6 @@ def create_vec_env(
                 render_mode=render_mode,
                 action_repeat=action_repeat,
                 gray=gray,
-                image_layout=image_layout,
             )
         )
         for i in range(num_envs)
