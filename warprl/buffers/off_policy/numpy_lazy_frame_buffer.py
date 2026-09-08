@@ -151,19 +151,27 @@ class NumpyLazyFrameBuffer(BaseBuffer):
             return np.maximum(self.min_weight, 1.0 - age / self.abs_linear_decay_step)
         return np.minimum(1.0, self.min_weight + age / self.abs_linear_decay_step)
 
+    def _sampling_weights(self, timestamps: np.ndarray) -> np.ndarray:
+        weights = self._weights(timestamps)
+        if weights.sum() <= 0:
+            return np.ones_like(weights, dtype=np.float32)
+        return weights
+
     def _sample_indices(self, batch_size: int) -> np.ndarray:
         valid = np.flatnonzero(self._valid)
         if self.linear_decay_step == 0:
             return np.random.choice(valid, batch_size, replace=True)
         if not self.use_approximate_sampling:
-            weights = self._weights(self._timestamps[valid])
+            weights = self._sampling_weights(self._timestamps[valid])
             return np.random.choice(valid, batch_size, p=weights / weights.sum())
 
+        # Valid slots follow ring order, not chronological order; bucket by age.
+        valid = valid[np.argsort(self._timestamps[valid], kind="stable")]
         bucket_size = max((valid.size + self.num_buckets - 1) // self.num_buckets, 1)
         starts = np.arange(0, valid.size, bucket_size)
         ends = np.minimum(starts + bucket_size, valid.size)
         midpoints = (starts + ends - 1) // 2
-        weights = self._weights(self._timestamps[valid[midpoints]])
+        weights = self._sampling_weights(self._timestamps[valid[midpoints]])
         buckets = np.random.choice(len(starts), batch_size, p=weights / weights.sum())
         offsets = (np.random.random(batch_size) * (ends[buckets] - starts[buckets])).astype(np.int64)
         return valid[starts[buckets] + offsets]
