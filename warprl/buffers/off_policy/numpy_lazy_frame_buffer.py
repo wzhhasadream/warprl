@@ -70,6 +70,10 @@ class NumpyLazyFrameBuffer(BaseBuffer):
         self._truncations = np.empty(length, dtype=np.float32)
         self._valid = np.zeros(length, dtype=bool)
         self._timestamps = np.empty(length, dtype=np.int64) if self.linear_decay_step else None
+        # Chronological FIFO of valid physical slots, used by approximate bias sampling.
+        self._ordered_valid = np.empty(self.max_size + 1, dtype=np.int64) if self.linear_decay_step else None
+        self._order_head = 0
+        self._order_tail = 0
         window = self.frame_stack + self.n_step
         self._frame_windows = sliding_window_view(self._frames, (window, *frame_shape))
         self._frame_windows = self._frame_windows[(slice(None),) + (0,) * len(frame_shape)]
@@ -93,16 +97,36 @@ class NumpyLazyFrameBuffer(BaseBuffer):
         index %= self.max_size
         return index + self.max_size if index < self.frame_stack else index
 
+    def _push_valid(self, index: int) -> None:
+        if self._ordered_valid is None:
+            return
+        if self._order_tail == self._ordered_valid.size:
+            active = self._ordered_valid[self._order_head:self._order_tail].copy()
+            self._ordered_valid[:active.size] = active
+            self._order_head = 0
+            self._order_tail = active.size
+        self._ordered_valid[self._order_tail] = index
+        self._order_tail += 1
+
+    def _pop_valid(self) -> None:
+        if self._ordered_valid is not None:
+            self._order_head += 1
+
     def _mark(self, index: int, valid: bool) -> None:
         index = self._index(index)
+        was_valid = self._valid[index]
         if valid:
-            self._num_valid += int(not self._valid[index])
+            self._num_valid += int(not was_valid)
             self._valid[index] = True
             if self._timestamps is not None:
                 self._timestamps[index] = self._current_time
+            if not was_valid:
+                self._push_valid(index)
         else:
-            self._num_valid -= int(self._valid[index])
+            self._num_valid -= int(was_valid)
             self._valid[index] = False
+            if was_valid:
+                self._pop_valid()
 
     def _add_frame(
         self,
@@ -165,8 +189,8 @@ class NumpyLazyFrameBuffer(BaseBuffer):
             weights = self._sampling_weights(self._timestamps[valid])
             return np.random.choice(valid, batch_size, p=weights / weights.sum())
 
-        # Valid slots follow ring order, not chronological order; bucket by age.
-        valid = valid[np.argsort(self._timestamps[valid], kind="stable")]
+        # _ordered_valid is already kept in chronological FIFO order.
+        valid = self._ordered_valid[self._order_head:self._order_tail]
         bucket_size = max((valid.size + self.num_buckets - 1) // self.num_buckets, 1)
         starts = np.arange(0, valid.size, bucket_size)
         ends = np.minimum(starts + bucket_size, valid.size)
@@ -221,6 +245,8 @@ class NumpyLazyFrameBuffer(BaseBuffer):
         self.size = 0
         self.full = False
         self._valid.fill(False)
+        self._order_head = 0
+        self._order_tail = 0
 
     def save(self, path: str) -> None:
         np.savez(
@@ -243,6 +269,13 @@ class NumpyLazyFrameBuffer(BaseBuffer):
             self._timestamps[...] = data["timestamps"]
         self._buffer_idx, self._trajectory_length, self._writes, self._num_valid, self._current_time = map(int, data["state"])
         self.ptr, self.size, self.full = self._buffer_idx, self._num_valid, self._writes >= self.max_size
+        if self._ordered_valid is not None:
+            valid = np.flatnonzero(self._valid)
+            if self._timestamps is not None:
+                valid = valid[np.argsort(self._timestamps[valid], kind="stable")]
+            self._ordered_valid[:valid.size] = valid
+            self._order_head = 0
+            self._order_tail = valid.size
 
     def __len__(self) -> int:
         return self._num_valid
